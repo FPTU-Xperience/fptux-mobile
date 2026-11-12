@@ -44,7 +44,8 @@
         {
           "locationWhenInUsePermission": "Cho phép ứng dụng lấy vị trí để xác nhận điểm danh."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

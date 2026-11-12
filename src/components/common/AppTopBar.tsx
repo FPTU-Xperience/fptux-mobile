@@ -1,16 +1,26 @@
 // components/common/AppTopBar.tsx
 import { usePathname, useRouter } from 'expo-router';
 import { Bell, ScanQrCode } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { useAuth } from '@/providers/AuthProvider';
 
 type Props = { title: string };
 
 export default function AppTopBar({ title }: Props) {
   const router = useRouter();
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
 
   // Đang ở màn quét thì không cần nút quét nữa
   const showScan = pathname !== '/scan';
+
+  const confirmSignOut = () => {
+    Alert.alert('Đăng xuất', `Bạn có muốn đăng xuất khỏi ${user?.email ?? 'tài khoản này'}?`, [
+      { text: 'Hủy', style: 'cancel' },
+      { text: 'Đăng xuất', style: 'destructive', onPress: () => signOut() },
+    ]);
+  };
 
   return (
     <View style={styles.row}>
@@ -39,9 +49,9 @@ export default function AppTopBar({ title }: Props) {
           <View style={styles.dot} />
         </View>
 
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>HC</Text>
-        </View>
+        <Pressable style={styles.avatar} onPress={confirmSignOut} hitSlop={6}>
+          <Text style={styles.avatarText}>{user?.initials ?? '--'}</Text>
+        </Pressable>
       </View>
     </View>
   );
