@@ -1,10 +1,17 @@
 // components/common/AppTopBar.tsx
-import { Bell } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { usePathname, useRouter } from 'expo-router';
+import { Bell, ScanQrCode } from 'lucide-react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 type Props = { title: string };
 
 export default function AppTopBar({ title }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // Đang ở màn quét thì không cần nút quét nữa
+  const showScan = pathname !== '/scan';
+
   return (
     <View style={styles.row}>
       <View style={styles.brand}>
@@ -17,10 +24,21 @@ export default function AppTopBar({ title }: Props) {
       <Text style={styles.title}>{title}</Text>
 
       <View style={styles.right}>
+        {showScan && (
+          <Pressable
+            style={styles.scan}
+            onPress={() => router.navigate('/scan')}
+            hitSlop={8}
+            accessibilityLabel="Quét mã QR">
+            <ScanQrCode size={20} color="#F97316" />
+          </Pressable>
+        )}
+
         <View>
           <Bell size={22} color="#374151" />
           <View style={styles.dot} />
         </View>
+
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>HC</Text>
         </View>
@@ -55,6 +73,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 12,
+  },
+  scan: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FFF1E6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dot: {
     position: 'absolute',

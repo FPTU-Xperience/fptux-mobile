@@ -50,7 +50,7 @@ export default function ClubDetailScreen() {
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/explore');
+    else router.replace('/allClubs');
   };
 
   const handleShare = () => {

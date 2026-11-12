@@ -1,33 +1,52 @@
 // app/(tabs)/explore.tsx
 import { useRouter } from 'expo-router';
-import { UserPlus } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import ClubCard from '@/components/explore/ClubCard';
 import FilterChips from '@/components/common/FilterChips';
-import ScreenHeader from '@/components/common/ScreenHeader';
 import ScreenLayout from '@/components/common/ScreenLayout';
 import SearchBar from '@/components/common/SearchBar';
-import { fetchClubs } from '@/services/mockClubs';
-import type { Club, ClubFeed, ClubFilterKey } from '@/types/club';
+import DiscoverSectionTitle from '@/components/discover/DiscoverSectionTitle';
+import HeroCard from '@/components/discover/HeroCard';
+import MoreCommunityCard from '@/components/discover/MoreCommunityCard';
+import Pagination from '@/components/discover/Pagination';
+import QuickActions from '@/components/discover/QuickActions';
+import RecoClubCard from '@/components/discover/RecoClubCard';
+import RecoEventCard from '@/components/discover/RecoEventCard';
+import { fetchRecommendation } from '@/services/mockRecommendation';
+import type {
+  QuickActionRoute,
+  RecoClubCategoryKey,
+  RecoEventFilterKey,
+  RecommendationResponse,
+} from '@/types/recommendation';
+
+const TAB_ROUTES = {
+  activity: '/activity',
+  schedule: '/schedule',
+  allClubs: '/allClubs',
+} as const satisfies Record<QuickActionRoute, string>;
 
 export default function ExploreScreen() {
   const router = useRouter();
-  const [feed, setFeed] = useState<ClubFeed | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [keyword, setKeyword] = useState('');
-  const [filter, setFilter] = useState<ClubFilterKey>('all');
-  const [recruitingOnly, setRecruitingOnly] = useState(false);
 
+  const [data, setData] = useState<RecommendationResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [eventStatus, setEventStatus] = useState<RecoEventFilterKey>('all');
+  const [keyword, setKeyword] = useState('');
+  const [category, setCategory] = useState<RecoClubCategoryKey>('all');
+  const [page, setPage] = useState(1);
+
+  // Gọi GET /recommendation mỗi khi bộ lọc / trang thay đổi
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
     const timer = setTimeout(async () => {
-      const data = await fetchClubs({ keyword, filter, recruitingOnly });
+      const res = await fetchRecommendation({ eventStatus, keyword, category, page });
       if (!cancelled) {
-        setFeed(data);
+        setData(res);
         setLoading(false);
       }
     }, 250);
@@ -36,53 +55,99 @@ export default function ExploreScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [keyword, filter, recruitingOnly]);
+  }, [eventStatus, keyword, category, page]);
 
-  const openDetail = (club: Club) => {
-    router.push({ pathname: '/club/[id]', params: { id: club.id } });
+  const changeKeyword = (text: string) => {
+    setKeyword(text);
+    setPage(1);
+  };
+
+  const changeCategory = (key: RecoClubCategoryKey) => {
+    setCategory(key);
+    setPage(1);
   };
 
   return (
     <ScreenLayout title="Khám phá">
-      <ScreenHeader
-        campus={feed?.campus}
-        title="Tất cả câu lạc bộ"
-        subtitle={`Khám phá ${feed?.total ?? 79} cộng đồng sinh viên sôi động tại FPTU`}
-      />
-      <SearchBar
-        value={keyword}
-        onChangeText={setKeyword}
-        placeholder="Tìm kiếm câu lạc bộ theo tên, lĩnh vực..."
-      />
-      {feed && <FilterChips filters={feed.filters} selected={filter} onSelect={setFilter} />}
-
-      <View style={styles.summary}>
-        <View style={styles.summaryLeft}>
-          <View style={styles.dot} />
-          <Text style={styles.summaryText}>
-            {feed ? `${feed.clubs.length} câu lạc bộ phù hợp` : ' '}
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => setRecruitingOnly((v) => !v)}
-          style={[styles.toggle, recruitingOnly && styles.toggleActive]}>
-          <UserPlus size={13} color={recruitingOnly ? '#C2410C' : '#6B7280'} />
-          <Text style={[styles.toggleText, recruitingOnly && styles.toggleTextActive]}>
-            Đang tuyển
-          </Text>
-        </Pressable>
-      </View>
-
-      {loading && !feed ? (
+      {!data ? (
         <ActivityIndicator color="#F97316" style={styles.loader} />
       ) : (
-        <View style={[styles.list, loading && styles.dim]}>
-          {feed?.clubs.map((club) => (
-            <ClubCard key={club.id} club={club} onPressDetail={openDetail} />
-          ))}
-          {feed && feed.clubs.length === 0 && (
-            <Text style={styles.empty}>Không tìm thấy câu lạc bộ phù hợp</Text>
-          )}
+        <View style={loading && styles.dim}>
+          {/* Hero */}
+          <HeroCard
+            hero={data.hero}
+            onPressPrimary={() => router.navigate('/allClubs')}
+            onPressSecondary={() => router.navigate('/activity')}
+          />
+
+          <QuickActions
+            actions={data.quickActions}
+            onPress={(a) => router.navigate(TAB_ROUTES[a.route])}
+          />
+
+          {/* Hoạt động dành cho bạn */}
+          <DiscoverSectionTitle
+            title="Hoạt động dành cho bạn"
+            subtitle="Khám phá hoạt động đang & sắp diễn ra"
+            linkLabel="Tất cả"
+            onPressLink={() => router.navigate('/activity')}
+          />
+          <FilterChips
+            filters={data.events.filters}
+            selected={eventStatus}
+            onSelect={setEventStatus}
+          />
+          <View style={styles.list}>
+            {data.events.items.map((e) => (
+              <RecoEventCard
+                key={e.id}
+                event={e}
+                onPress={(ev) => router.push({ pathname: '/event/[id]', params: { id: ev.id } })}
+              />
+            ))}
+            {data.events.items.length === 0 && (
+              <Text style={styles.empty}>Chưa có hoạt động phù hợp</Text>
+            )}
+          </View>
+
+          {/* Câu lạc bộ dành cho bạn */}
+          <DiscoverSectionTitle
+            title="Câu lạc bộ dành cho bạn"
+            subtitle="Khám phá những cộng đồng được tuyển chọn để bắt đầu hành trình."
+            meta={`${data.clubs.pagination.total} CLB gợi ý`}
+          />
+          <SearchBar
+            value={keyword}
+            onChangeText={changeKeyword}
+            placeholder="Tìm câu lạc bộ theo tên, lĩnh vực..."
+          />
+          <FilterChips
+            filters={data.clubs.filters}
+            selected={category}
+            onSelect={changeCategory}
+          />
+          <View style={[styles.list, styles.clubList]}>
+            {data.clubs.items.map((c) => (
+              <RecoClubCard
+                key={c.id}
+                club={c}
+                onPress={(club) =>
+                  router.push({ pathname: '/club/[id]', params: { id: club.id } })
+                }
+              />
+            ))}
+            {data.clubs.items.length === 0 && (
+              <Text style={styles.empty}>Không tìm thấy câu lạc bộ phù hợp</Text>
+            )}
+          </View>
+
+          <Pagination
+            page={data.clubs.pagination.page}
+            pageCount={data.clubs.pagination.pageCount}
+            onChange={setPage}
+          />
+
+          <MoreCommunityCard data={data.moreCta} onPress={() => router.navigate('/allClubs')} />
         </View>
       )}
     </ScreenLayout>
@@ -90,33 +155,9 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-  summary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-  },
-  summaryLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F97316' },
-  summaryText: { fontSize: 12, color: '#6B7280', fontWeight: '500' },
-  toggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  toggleActive: { backgroundColor: '#FFE9D6', borderColor: '#FDBA74' },
-  toggleText: { fontSize: 11, fontWeight: '600', color: '#6B7280' },
-  toggleTextActive: { color: '#C2410C' },
-  list: { paddingHorizontal: 16, gap: 18 },
-  dim: { opacity: 0.5 },
-  loader: { marginTop: 40 },
-  empty: { textAlign: 'center', color: '#9CA3AF', marginTop: 40 },
+  loader: { marginTop: 60 },
+  dim: { opacity: 0.6 },
+  list: { paddingHorizontal: 16, gap: 16, marginTop: 14 },
+  clubList: { gap: 18 },
+  empty: { textAlign: 'center', color: '#9CA3AF', marginTop: 20 },
 });

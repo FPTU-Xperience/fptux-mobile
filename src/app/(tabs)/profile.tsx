@@ -1,4 +1,5 @@
 // app/(tabs)/profile.tsx
+import { useRouter } from 'expo-router';
 import { BookOpen, Heart } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -16,9 +17,10 @@ import ProfileHero from '@/components/profile/ProfileHero';
 import SkillsCard from '@/components/profile/SkillsCard';
 import StatGrid from '@/components/profile/StatGrid';
 import { fetchProfile } from '@/services/mockProfile';
-import type { ProfileFeed, ProfileTabKey } from '@/types/profile';
+import type { ProfileFeed, ProfileMenuItem, ProfileTabKey } from '@/types/profile';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const [feed, setFeed] = useState<ProfileFeed | null>(null);
   const [tab, setTab] = useState<ProfileTabKey>('overview');
 
@@ -31,6 +33,11 @@ export default function ProfileScreen() {
       cancelled = true;
     };
   }, []);
+
+  const handleMenuPress = (item: ProfileMenuItem) => {
+    // m1 = "Câu lạc bộ của tôi"
+    if (item.id === 'm1') router.push('/my-clubs');
+  };
 
   return (
     <ScreenLayout title="Profile">
@@ -68,7 +75,7 @@ export default function ProfileScreen() {
               <CompetencyCard data={feed.competency} />
               <SkillsCard skills={feed.skills} />
               <ClubsCard clubs={feed.clubs} />
-              <ManageMenu items={feed.menu} />
+              <ManageMenu items={feed.menu} onPressItem={handleMenuPress} />
             </>
           ) : (
             <EvidenceTab evidences={feed.evidences} />

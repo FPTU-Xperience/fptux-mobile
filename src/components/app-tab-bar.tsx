@@ -1,9 +1,9 @@
 import {
     CalendarDays,
     Compass,
-    ScanQrCode,
     Sparkles,
     User,
+    Users,
     type LucideIcon,
 } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -11,15 +11,21 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 const ACTIVE = '#F97316';
 const INACTIVE = '#8E8E93';
 
-type TabConfig = { icon: LucideIcon; label?: string; center?: boolean };
+type TabConfig = { icon: LucideIcon; label: string };
 
-// key = tên route (tên file trong app/(tabs))
+// key = tên route (tên file trong app/(tabs)). Route không có ở đây sẽ không hiện trên bar
+// (vd: scan, my-clubs).
 const TABS: Record<string, TabConfig> = {
-    explore: { icon: Compass, label: 'Khám phá' },
+    explore: { icon: Compass, label: 'Khám Phá' },
+    allClubs: { icon: Users, label: 'Câu lạc bộ' },
     activity: { icon: Sparkles, label: 'Hoạt động' },
-    scan: { icon: ScanQrCode, center: true },
-    schedule: { icon: CalendarDays, label: 'Lịch trình' },
-    profile: { icon: User, label: 'Profile' },
+    schedule: { icon: CalendarDays, label: 'Lịch Trình' },
+    profile: { icon: User, label: 'Hồ sơ' },
+};
+
+// Route phụ (không hiện trên bar) -> tab cha sẽ được tô sáng khi đang ở route phụ đó
+const PARENT_TAB: Record<string, string> = {
+    'my-clubs': 'profile',
 };
 
 // Type tối thiểu, khớp với props mà tabBar thực sự nhận
@@ -32,7 +38,7 @@ type AppTabBarProps = {
         emit: (event: {
             type: 'tabPress';
             target: string;
-            canPreventDefault: true; // đổi từ boolean thành true
+            canPreventDefault: true;
         }) => { defaultPrevented?: boolean };
     };
     navigateToTab: (routeKey: string) => void;
@@ -45,13 +51,18 @@ export default function AppTabBar({
     navigateToTab,
     insets,
 }: AppTabBarProps) {
+    // Tên tab cần tô sáng: nếu đang ở route phụ thì lấy tab cha
+    const currentName = state.routes[state.index]?.name;
+    const activeName = PARENT_TAB[currentName] ?? currentName;
+
     return (
         <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8) }]}>
             {state.routes.map((route, index) => {
                 const config = TABS[route.name];
                 if (!config) return null;
 
-                const focused = state.index === index;
+                const focused = route.name === activeName;
+                const isCurrentRoute = state.index === index;
                 const Icon = config.icon;
 
                 const onPress = () => {
@@ -60,27 +71,21 @@ export default function AppTabBar({
                         target: route.key,
                         canPreventDefault: true,
                     });
-                    if (!focused && !event?.defaultPrevented) {
+                    // Dùng isCurrentRoute (không dùng focused) để bấm lại tab cha
+                    // khi đang ở route phụ vẫn quay về được
+                    if (!isCurrentRoute && !event?.defaultPrevented) {
                         navigateToTab(route.key);
                     }
                 };
-
-                if (config.center) {
-                    return (
-                        <View key={route.key} style={styles.centerSlot}>
-                            <Pressable onPress={onPress} style={styles.centerButton}>
-                                <Icon size={30} color="#fff" strokeWidth={2} />
-                            </Pressable>
-                        </View>
-                    );
-                }
 
                 const color = focused ? ACTIVE : INACTIVE;
 
                 return (
                     <Pressable key={route.key} onPress={onPress} style={styles.tab}>
                         <Icon size={24} color={color} strokeWidth={focused ? 2.4 : 2} />
-                        <Text style={[styles.label, { color }]}>{config.label}</Text>
+                        <Text style={[styles.label, { color }]} numberOfLines={1}>
+                            {config.label}
+                        </Text>
                     </Pressable>
                 );
             })}
@@ -91,9 +96,9 @@ export default function AppTabBar({
 const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         backgroundColor: '#fff',
-        paddingTop: 8,
+        paddingTop: 10,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         shadowColor: '#000',
@@ -112,25 +117,5 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 11,
         fontWeight: '500',
-    },
-    centerSlot: {
-        flex: 1,
-        alignItems: 'center',
-    },
-    centerButton: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: ACTIVE,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: -32,
-        borderWidth: 4,
-        borderColor: '#fff',
-        shadowColor: ACTIVE,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.35,
-        shadowRadius: 8,
-        elevation: 8,
     },
 });
