@@ -67,7 +67,8 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          accept-android-sdk-licenses: yes
+          # Input này là BOOLEAN (getBooleanInput) — không dùng "yes".
+          accept-android-sdk-licenses: true
           packages: >-
             platform-tools
             platforms;android-37.0
