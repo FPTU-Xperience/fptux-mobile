@@ -1,0 +1,84 @@
+name: Build Debug APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: API Gateway base URL (bỏ trống để dùng vars.VITE_API_BASE_URL)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug-apk-build
+  cancel-in-progress: false
+
+jobs:
+  build-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.CLUBHUB_GOOGLE_CLIENT_ID }}
+      EXPO_PUBLIC_API_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+      EXPO_PUBLIC_DEV_ACCESS_TOKEN: ${{ secrets.CLUBHUB_DEV_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: >-
+            platform-tools
+            platforms;android-37.0
+            build-tools;37.0.0
+            ndk;27.1.12297006
+            cmake;3.22.1
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Debug APK locally via EAS
+        run: |
+          npx --yes eas-cli build \
+            --platform android \
+            --profile development \
+            --local \
+            --non-interactive \
+            --output ./app-debug.apk
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app-debug.apk
+          retention-days: 30
+          if-no-files-found: error
