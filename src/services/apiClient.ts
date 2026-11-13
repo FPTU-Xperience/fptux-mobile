@@ -10,11 +10,21 @@
 const BASE_URL: string =
   (process.env.EXPO_PUBLIC_API_URL ?? 'https://clubreporthub.duckdns.org').replace(/\/+$/, '');
 
-/** Dev token lấy từ .env (không phải endpoint). Phase 7 sẽ thay bằng session store. */
-const DEV_ACCESS_TOKEN: string | null = (process.env.EXPO_PUBLIC_DEV_ACCESS_TOKEN ?? '').trim() || null;
+/** Dev token lấy từ .env (fallback khi chưa login Google thật). */
+const DEV_ACCESS_TOKEN: string | null =
+  (process.env.EXPO_PUBLIC_DEV_ACCESS_TOKEN ?? '').trim() || null;
 
+/** Token runtime — đặt khi login Google thành công (auth.ts gọi setRuntimeToken). */
+let runtimeToken: string | null = null;
+
+/** Đăng nhập (auth.ts) gọi hàm này để gắn token thật; logout gọi `setRuntimeToken(null)`. */
+export function setRuntimeToken(token: string | null): void {
+  runtimeToken = token;
+}
+
+/** Chọn token: runtime (login Google) > dev token (.env). */
 export function getAccessToken(): string | null {
-  return DEV_ACCESS_TOKEN;
+  return runtimeToken ?? DEV_ACCESS_TOKEN;
 }
 
 export class ApiError extends Error {

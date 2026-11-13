@@ -425,12 +425,13 @@ Client mobile (in `apiClient.ts`):
 
 ---
 
-## 6. Kế hoạch thực thi (đợt hiện tại: Phase 1, 3, 4, 6 — bỏ qua Phase 2, 5, 7)
+## 6. Kế hoạch thực thi (đợt hiện tại: Phase 1 → 2 → 3 → 4 → 6; deferred: 5, 7)
 
-> Theo quyết định: **không làm auth** (Phase 2 → Phase 7, deferred) và **không làm scan/check-in** (Phase 5 → deferred, chờ BE).
+> Theo quyết định: **không làm scan/check-in** (Phase 5 → deferred, chờ BE xác nhận format QR).
+> Đăng nhập thật (Google Sign-In native) được tách ra thành **Phase 2** (build `app-debug.apk` + cấu hình Google Cloud) để app có thể test với dữ liệu thật; auth service layer (refresh token, SecureStore rotation, logout) là Phase 7.
 > Đợt này bàn giao: **app đọc dữ liệu thật từ API** cho 8 màn hình: explore, allClubs, activity, event detail, club detail, my-clubs, profile, schedule.
 
-### Phase 1 — Nền tảng client API (1–2 ngày)
+### Phase 1 — Nền tảng client API (1–2 ngày) ✅ HOÀN TẤT (commit e293b05)
 
 **Viết mới:**
 
@@ -447,6 +448,88 @@ Client mobile (in `apiClient.ts`):
 - [ ] `.env` — thêm `EXPO_PUBLIC_DEV_ACCESS_TOKEN` (+ `EXPO_PUBLIC_API_URL` đã có)
 
 **Test:** app mở thẳng explore, gọi được 1 endpoint thật (vd `GET /api/clubs?active=true`), lỗi 401 hiện message rõ ràng.
+
+---
+
+### Phase 2 — Build `app-debug.apk` + Google Sign-In native (2–3 ngày) ← MỚI, trước Phase 3
+
+> **Mục tiêu:** xuất được `app-debug.apk` (Expo/EAS) để cài lên máy Android thật, đăng nhập bằng Google hoạt động end-to-end: sign-in native → `POST /api/auth/google { credential }` → access token thật (bỏ dev token).
+>
+> **Thư viện (đã xác nhận theo docs Expo chính thức):**
+> - **Dùng `react-native-nitro-google-signin`** — docs Expo "Google authentication" recommend cho Android vì có sẵn **Android Credential Manager** (SDK legacy `play-services-auth` đã bị Google deprecate).
+> - **KHÔNG dùng `expo-auth-session` Google provider** — provider này đã bị đánh dấu `@deprecated` trong source SDK 58; guide mới chuyển hướng sang 2 thư viện native.
+> - Thư viện native → **bắt buộc development build / standalone APK, không chạy được trong Expo Go**.
+>
+> **Điểm then chốt về audience (đã xác nhận → KHÔNG cần đổi BE):**
+> ID token mà `react-native-nitro-google-signin` trả về có claim `aud` = **Web OAuth client ID** (docs usage: token's `aud` must equal your Web OAuth client ID). BE đang validate `aud` = `GOOGLE_CLIENT_ID` (Web) ⇒ **khớp**. Android OAuth client (package name + SHA-1) chỉ dùng để **định danh app** trong flow native, không phải audience.
+
+#### 2.1. Cấu hình Google Cloud Console (BE đã có sẵn pattern)
+
+Backend (`fptu-xperience-clubhub-api/GOOGLE_SIGN_IN.md`) yêu cầu:
+- `POST /api/auth/google` body `{ "credential": "GOOGLE_ID_TOKEN" }`
+- BE validate: signature, issuer, **audience = `GOOGLE_CLIENT_ID` (Web client ID)**, expiry, `email_verified`, rồi so email với `ClubReportHub_Auth.dbo.Users`
+- Email phải thuộc `GOOGLE_ALLOWED_EMAIL_DOMAINS` và **có sẵn row trong DB** với role `ADMIN`/`CLUB_MANAGER`/`CLUB_MEMBER`; `CLUB_MEMBER` còn phải có trong **roster học kỳ hiện tại**
+- **Không** tự tạo user mới khi đăng nhập
+
+**Các bước Google Cloud (chi tiết ở §12):**
+1. Project Google — nên **cùng project** với web ClubHub để dùng lại Web client ID mà BE đang cấu hình.
+2. Tạo **OAuth 2.0 Client ID → Android**: package name `vn.fptu.xperience.mobile` + SHA-1 keystore build (debug/release) → Android client ID.
+3. Web client ID **đã có** (BE dùng làm `GOOGLE_CLIENT_ID`) → dùng làm `webClientId` cho thư viện.
+4. (Tùy) OAuth consent: Internal (Workspace FPTU) + test users, hoặc External + test email.
+
+> **Lưu ý `audience`:** đã giải quyết — `webClientId` = Web client ID của BE ⇒ token `aud` khớp ⇒ BE giữ nguyên, không cần sửa.
+
+#### 2.2. Thêm dependency + cấu hình app
+
+- [ ] `npx expo install react-native-nitro-google-signin react-native-nitro-modules expo-dev-client`
+- [ ] `app.json`:
+  - `android.package`: `"vn.fptu.xperience.mobile"` (khớp Android OAuth client)
+  - `plugins`: `["react-native-nitro-google-signin"]` (`expo install` tự thêm)
+  - `android.googleServicesFile`: `"./google-services.json"` (đường Firebase) **HOẶC** không dùng Firebase — chỉ cần SHA-1 + `webClientId` (xem §12.1 "Without Firebase")
+  - `scheme` giữ `fptuxperiencemobile`
+- [ ] `eas.json` (đã tạo) — profile `development` (dev client) + `preview` (APK nội bộ, `buildType: apk`)
+
+#### 2.3. Build `app-debug.apk`
+
+- [ ] **Cách A — EAS Build (không cần Android Studio):**
+  - `npx eas-cli@latest login` → `npx eas-cli@latest build:configure` (project link)
+  - Build lần đầu EAS hỏi Android keystore → để EAS tự tạo (EAS in **SHA-1**) → **đăng ký SHA-1 đó** vào Android OAuth client
+  - `npx eas-cli@latest build --profile preview --platform android` → link tải `.apk` → về `app-debug.apk`
+- [ ] **Cách B — Local (cần JDK 17 + Android SDK):**
+  - `npx expo prebuild --clean` (plugin nitro sinh native project, đăng ký SHA-1 keystore local)
+  - SHA-1 keystore: `keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android`
+  - `npx expo run:android --variant debug` → artifact `android/app/build/outputs/apk/debug/app-debug.apk`
+
+#### 2.4. Tích hợp Google Sign-In (client)
+
+- [ ] `src/services/googleAuth.ts` — dùng `react-native-nitro-google-signin`:
+```ts
+import { GoogleOneTapSignIn } from 'react-native-nitro-google-signin';
+
+// 1) Cấu hình 1 lần (ở bootstrap/AppProvider):
+GoogleOneTapSignIn.configure({
+  webClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID, // = GOOGLE_CLIENT_ID (Web) của BE
+  scopes: ['openid', 'email', 'profile'],
+  offlineAccess: false,
+});
+
+// 2) Sign-in → lấy idToken (credential cho BE)
+const res = await GoogleOneTapSignIn.signIn();
+const idToken = res.data.idToken;
+```
+- [ ] `.env` + EAS env: `EXPO_PUBLIC_GOOGLE_CLIENT_ID` = **Web client ID** (cùng BE) — **KHÔNG** phải Android client ID
+- [ ] `src/services/auth.ts`: `loginWithGoogle()` → `idToken` → `POST /api/auth/google` → lưu SecureStore + `setRuntimeToken`
+- [ ] `AuthProvider.tsx`: restore session (SecureStore) khi mở app; `signIn()` → Google; `signOut()` → clear
+- [ ] `login.tsx`: nút "Đăng nhập bằng Google" thật; giữ dev-token fallback khi chưa có client ID
+
+#### 2.5. Test
+- [ ] Mở `app-debug.apk` trên máy Android → bấm "Đăng nhập bằng Google" → tài khoản `@fpt.edu.vn`
+- [ ] `POST /api/auth/google` trả token + user (không 401 — `aud` khớp Web client ID)
+- [ ] `GET /api/users/me` với token mới → đúng user; app đọc dữ liệu thật, bỏ dev token
+- [ ] Sai SHA-1 → Google hủy (`type: cancelled` sau account picker) ⇒ kiểm tra lại fingerprint (§12)
+- [ ] Tài khoản không có row DB / không có roster → lỗi 4xx rõ (không crash)
+
+---
 
 ### Phase 3 — Discovery + Clubs + Event Detail (3–4 ngày)
 
@@ -499,15 +582,18 @@ Client mobile (in `apiClient.ts`):
 | # | Rủi ro | Ảnh hưởng | Giải pháp / trạng thái |
 |---|---|---|---|
 | 1 | **Format QR chưa rõ** — sinh viên không biết `activityId`/`sessionId` nếu QR chỉ encode challenge string | Chặn Phase 5 (scan/check-in) | **Đã xác nhận: chờ BE.** Phase 5 deferred. Nếu BE xác nhận QR chỉ có challenge → cần endpoint mới `POST /api/attendance-challenges/decode { challenge }` → `{ activityId, sessionId }` |
-| 2 | **Chưa có auth thật** (quyết định #1) | Mọi endpoint `[auth]` cần Bearer | Dùng `EXPO_PUBLIC_DEV_ACCESS_TOKEN`. TTL 30 phút → cần script lấy token mới (`scripts/get-dev-token.mjs`, dùng `POST /api/auth/dev-login` nếu BE enable, hoặc Google account). Phase 7 (§11) làm auth thật |
-| 3 | Google client ID chưa có cho Android/iOS | Chặn login Google | Deferred cùng Phase 2 → §11 |
-| 4 | CORS — web build của mobile bị chặn | Chỉ ảnh hưởng `expo start --web` | Native app không bị CORS. Web build dùng dev proxy |
-| 5 | `registeredCount` không có trong R1 | Card event thiếu số người đăng ký | Bỏ footer count (được refactor component) hoặc dùng `sessionCount` từ sessions |
-| 6 | Category code → label cần C2 cache | Filter CLB hiển thị mã thay vì tên | Fetch C2 in-memory cache 1 lần, fallback = category code |
-| 7 | Radar (P2) trả null khi chưa có benchmark | Profile không có biểu đồ | `RadarChart` nhận `null` → "Chưa có dữ liệu" |
-| 8 | BE chưa có endpoint `POST /api/geocode` | `fetchPlaceInfo` giữ mock | Chấp nhận tạm; nếu BE thêm sau thì đổi 1 service |
-| 9 | Activity feed chỉ trả activity của campus người dùng | Explore có thể ít dữ liệu khi token dev thuộc campus khác | Dùng token của sinh viên campus Hà Nội khi test explore |
-| 10 | Refactor component → diff lớn, dễ regression | Review tốn thời gian | Bổ sung `useApiState` + ErrorState/EmptyState chung để mọi màn hình xử lý lỗi giống nhau; test từng màn sau khi sửa |
+| 2 | **`audience` của Google ID token** | ~~Chặn Phase 2~~ | **Đã giải quyết:** `react-native-nitro-google-signin` trả ID token có `aud` = **Web client ID**; BE validate `aud` = `GOOGLE_CLIENT_ID` (Web) ⇒ khớp, **BE không cần đổi** |
+| 3 | **Tài khoản Google không có trong DB hoặc không có trong roster học kỳ** | Login trả 403 dù Google OK | BE quy định rõ (GOOGLE_SIGN_IN.md). Cần chuẩn bị sẵn 1 tài khoản thật: có row trong `ClubReportHub_Auth.dbo.Users` + role `CLUB_MEMBER` + có trong `SemesterStudents` học kỳ hiện tại |
+| 4 | SHA-1 keystore không khớp → Google hủy (`type: 'cancelled'` sau account picker) | Login fail | Đăng ký SHA-1 đúng keystore đã dùng build. EAS tự tạo keystore + in SHA-1 (§12.2). Thêm cả release + Play App Signing SHA-1 khi lên production |
+| 5 | EAS build cần tài khoản Expo (đăng nhập) + quota build | Chặn build APK | `npx eas-cli@latest login` (email + mật khẩu, free tier đủ cho dev/preview). Nếu không dùng EAS → local build cần Android Studio + JDK 17 |
+| 6 | Chưa có auth thật (dev token) | Mọi endpoint `[auth]` cần Bearer | Dùng `EXPO_PUBLIC_DEV_ACCESS_TOKEN`. TTL 30 phút → cần nạp token mới. Phase 2 thay bằng login Google thật |
+| 7 | CORS — web build của mobile bị chặn | Chỉ ảnh hưởng `expo start --web` | Native app không bị CORS. Web build dùng dev proxy |
+| 8 | `registeredCount` không có trong R1 | Card event thiếu số người đăng ký | Bỏ footer count (được refactor component) hoặc dùng `sessionCount` từ sessions |
+| 9 | Category code → label cần C2 cache | Filter CLB hiển thị mã thay vì tên | Fetch C2 in-memory cache 1 lần, fallback = category code |
+| 10 | Radar (P2) trả null khi chưa có benchmark | Profile không có biểu đồ | `RadarChart` nhận `null` → "Chưa có dữ liệu" |
+| 11 | BE chưa có endpoint `POST /api/geocode` | `fetchPlaceInfo` giữ mock | Chấp nhận tạm; nếu BE thêm sau thì đổi 1 service |
+| 12 | Activity feed chỉ trả activity của campus người dùng | Explore có thể ít dữ liệu khi token thuộc campus khác | Dùng tài khoản campus Hà Nội khi test explore |
+| 13 | Refactor component → diff lớn, dễ regression | Review tốn thời gian | Bổ sung `useApiState` + ErrorState/EmptyState chung để mọi màn hình xử lý lỗi giống nhau; test từng màn sau khi sửa |
 
 ---
 
@@ -585,45 +671,150 @@ src/services/mockAuth.ts        # sau khi AuthProvider rút gọn
 ## 9. Trật tự công việc (đợt hiện tại)
 
 ```
-Phase 1 (nền tảng client API + types)
-   ├─→ Phase 3 (discovery + clubs + event detail)  ─┐
-   └─→ Phase 4 (my clubs + profile + schedule)     ─┴─→ Phase 6 (dọn dẹp, audit)
+Phase 1 (nền tảng client API + types) ✅
+   └─→ Phase 2 (app-debug.apk + Google Sign-In native)   ← đang làm
+          └─→ Phase 3 (discovery + clubs + event detail)  ─┐
+          └─→ Phase 4 (my clubs + profile + schedule)     ─┴─→ Phase 6 (dọn dẹp, audit)
 ```
 
 **Deferred (không làm trong đợt này):**
-- Phase 2 → §11 (auth thật)
 - Phase 5 → §7 rủi ro #1 (scan/check-in, chờ BE)
+- Phase 7 → §11 (session layer hoàn chỉnh: refresh rotation, logout, restore)
 
-**Tăng độ an toàn**: sau Phase 1 chạy `npx expo lint` + `npx tsc --noEmit`. Sau mỗi Phase, test các luồng: explore → event detail → register → club detail → join → my clubs → profile → schedule.
+**Tăng độ an toàn**: sau mỗi Phase chạy `npx eslint src/` + `npx tsc --noEmit`. Sau Phase 2, test login thật trên máy. Sau mỗi Phase 3/4, test các luồng: explore → event detail → register → club detail → join → my clubs → profile → schedule.
 
 ---
 
 ## 10. Kiểm tra trước khi viết code (checklist)
 
-Trước khi bắt đầu Phase 1:
+**Phase 1** ✅ (xong):
+- [x] `EXPO_PUBLIC_API_URL` trỏ đúng gateway (`https://clubreporthub.duckdns.org`)
+- [x] `apiClient.ts`, `types/api.ts`, `useApiState`, `ErrorState`/`EmptyState` — lint + tsc sạch
+- [ ] Dev token có sẵn để test nhanh (không bắt buộc nếu làm Phase 2 trước)
 
-- [ ] `EXPO_PUBLIC_API_URL` đang trỏ đúng gateway (`https://clubreporthub.duckdns.org`) — xác nhận qua `GET /health`
-- [ ] **Có access token dev hợp lệ** để test — lấy từ: `POST /api/auth/dev-login` (nếu BE enable `LOCAL_DEV_LOGIN_KEY`) hoặc account Google của 1 sinh viên, hoặc BE cấp token test
-- [ ] Token dev còn hạn trong suốt quá trình dev (30 phút) → cần **cơ chế refresh hoặc token dài hạn**; nếu không, dùng script lấy token mới (`scripts/get-dev-token.mjs`) và nạp vào `.env`
+**Phase 2** (bắt đầu được ngay, nhưng cần xác nhận 2 điểm với BE trước khi test login):
+- [ ] **BE chấp nhận `audience` nào?** (rủi ro #2) — nếu BE chỉ validate Web client ID thì mobile dùng **Web client ID** cho `expo-auth-session` (dùng được, không cần BE đổi)
+- [ ] **Tài khoản test**: email `@fpt.edu.vn` có row trong `ClubReportHub_Auth.dbo.Users` (role `CLUB_MEMBER`) + có trong `SemesterStudents` của học kỳ hiện tại
+- [ ] `android.package` chốt: `vn.fptu.xperience.mobile`
+- [ ] SHA-1 của keystore debug đã đăng ký trong Android OAuth client
+- [ ] `EXPO_PUBLIC_GOOGLE_CLIENT_ID` (Web client id) đưa vào `.env` **và** EAS environment variables
+
+**Chung (không chặn):**
 - [ ] `registeredCount` có kế hoạch thêm vào R1 không? (đồng ý fallback nếu chưa)
 - [ ] Có cần endpoint `POST /api/geocode` cho GPS→địa điểm? (giữ mock nếu chưa có)
-- [ ] `/api/clubs/me/membership-applications/{id}/withdraw` (M4) đã implement (manifest: IMPLEMENTED) ✔
+- [ ] `/api/clubs/me/membership-applications/{id}/withdraw` (M4) đã implement ✔
 
-**Câu hỏi cho BE (không chặn đợt này, chặn Phase 5/7):**
+**Câu hỏi cho BE (chặn Phase 5/7):**
 - [ ] QR check-in encode gì? (`activityId`/`sessionId`/`challenge`?)
-- [ ] Có endpoint refresh token nào dùng được không cần cookie? (`POST /api/auth/refresh` — xác nhận response có `refreshToken` mới)
-- [ ] Google client ID cho Android/iOS đã cấu hình chưa?
+- [ ] `POST /api/auth/refresh` — response có `refreshToken` mới không? (rotation)
+- [ ] BE có bật `LOCAL_DEV_LOGIN_KEY` (dev-login) không?
 
 ---
 
-## 11. Phase deferred — đăng nhập thật (làm sau, không thuộc đợt này)
+## 11. Phase deferred — session layer hoàn chỉnh (Phase 7)
 
-Khi nào bắt đầu: sau khi có Google client ID **hoặc** xác nhận dùng email-login.
+Phần Google Sign-In client đã ở Phase 2. §11 này là **phần còn lại** của auth (chưa làm trong đợt này).
 
 - [ ] `src/services/session.ts` — SecureStore CRUD + shape `{ accessToken, refreshToken, refreshTokenExpiresAt, user, expiresAt }`
-- [ ] `src/services/auth.ts` — `loginWithGoogle()` (expo-auth-session native → `POST /api/auth/google`), `loginWithEmail()` (`POST /api/auth/email-login`), `logout()` (`POST /api/auth/logout`)
-- [ ] `apiClient.ts` — bổ sung refresh single-flight: 401 → `POST /api/auth/refresh` → retry 1 lần → fail → clear session + emit `session-lost`
-- [ ] `AuthProvider.tsx` — restore từ SecureStore, `signIn`/`signOut` thật, `onSessionLost` → `expireSession()`
-- [ ] `src/app/login.tsx` — màn đăng nhập thật (Google + email), `src/app/_layout.tsx` — bật lại `Stack.Protected`
-- [ ] Cấu hình Google Cloud: Android SHA-1, iOS bundle ID `com.fptuxperience.mobile`, redirect `fptuxperiencemobile://`
+- [ ] `src/services/auth.ts` — bổ sung `loginWithEmail()` (`POST /api/auth/email-login`), `logout()` (`POST /api/auth/logout`)
+- [ ] `apiClient.ts` — refresh single-flight: 401 → `POST /api/auth/refresh` → retry 1 lần → fail → clear session + emit `session-lost`
+- [ ] `AuthProvider.tsx` — restore từ SecureStore khi mở app, `onSessionLost` → `expireSession()`
+- [ ] `src/app/_layout.tsx` — bật lại `Stack.Protected` (đã có sẵn, chỉ cần status thật)
 - [ ] Xóa `mockAuth.ts`, `authStorage.ts`, `EXPO_PUBLIC_DEV_ACCESS_TOKEN` khỏi `.env`
+
+---
+
+## 12. Hướng dẫn setup Google Sign-In + build APK (chi tiết)
+
+> Xem §6.2 cho checklist công việc. Phần này là hướng dẫn thao tác từng bước.
+
+### 12.1. Google Cloud Console
+
+1. Mở <https://console.cloud.google.com/> → chọn project (nên dùng **cùng project** với web ClubHub để client ID khớp `GOOGLE_CLIENT_ID` của BE).
+2. **APIs & Services → Library** → tìm **Google Identity Services API** (hoặc **Google People API**) → **Enable**. (Google Sign-In Android dùng OAuth2 không cần API riêng, nhưng bật cho chắc.)
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID → Android**:
+   - **Application name**: `fptu-xperience-mobile-android`
+   - **Package name**: `vn.fptu.xperience.mobile` (khớp `android.package` trong app.json)
+   - **SHA-1**: lấy từ keystore debug (xem 12.2)
+4. **Create Credentials → OAuth client ID → Web application** (nếu chưa có):
+   - **Authorized JavaScript origins**: `https://clubreporthub.duckdns.org`, `http://localhost:8081`
+   - **Authorized redirect URIs**: `https://clubreporthub.duckdns.org`
+   - → copy **Client ID** (dạng `xxxx.apps.googleusercontent.com`) → đây là `GOOGLE_CLIENT_ID` mà BE đang dùng
+5. (Tùy) **OAuth consent screen**: chọn Internal (nếu project có org Google Workspace của FPTU) → thêm test users. Nếu là project cá nhân → chọn **External** + thêm email test.
+
+### 12.2. Lấy SHA-1 của keystore debug
+
+**Cách 1 — keystore debug mặc định của Android Studio:**
+```bash
+keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+```
+
+**Cách 2 — keystore do EAS tạo (khuyến nghị, cố định & nhất quán giữa các máy):**
+- EAS Build sinh keystore tự động và in **SHA-1** ở step "Configure Android Credentials" → copy vào OAuth client.
+
+**Cách 3 — keystore cố định trong repo (chỉ dev):** tạo 1 keystore dev, đặt vào `android/` (CNG), khai báo trong `app.json`:
+```json
+"android": {
+  "package": "vn.fptu.xperience.mobile",
+  "credentials": {
+    "keystoreFile": "android/app/debug.keystore",
+    "keystorePassword": "android",
+    "keyAlias": "androiddebugkey",
+    "keyPassword": "android"
+  }
+}
+```
+
+> **Quan trọng:** SHA-1 trong OAuth client phải khớp **chính xác** keystore dùng để build APK. Build bằng máy A (keystore A) → đăng ký SHA-1 A. Đổi máy build (keystore B) → phải đăng ký thêm SHA-1 B.
+
+### 12.3. Build APK
+
+**Cách A — EAS (khuyến nghị):**
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest build:configure        # tạo eas.json + link project
+npx eas-cli@latest build --profile preview --platform android
+```
+- Lần đầu EAS hỏi Android Keystore → để EAS tự tạo (hoặc upload keystore riêng).
+- Sau build xong, EAS in link tải `apk` (preview) — copy về `fptux-mobile/app-debug.apk`.
+- **Biến môi trường**: `eas env:create --name EXPO_PUBLIC_GOOGLE_CLIENT_ID --value "<web-client-id>" --environment preview --visibility plaintext` (làm cho cả `development` và `production`).
+
+**Cách B — Local (cần Android Studio + JDK 17 + Android SDK):**
+```bash
+npx expo prebuild --platform android        # sinh thư mục android/
+npx expo run:android --variant debug         # build + cài lên máy
+# artifact: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**Cách C — build có sẵn dev client (để `expo start` hot reload):**
+```bash
+npx eas-cli@latest build --profile development --platform android
+npx expo start --dev-client
+```
+- Profile `development` cần `expo-dev-client` trong package.json.
+
+### 12.4. Cài & chạy trên máy Android
+```bash
+adb install -r app-debug.apk
+adb shell monkey -p vn.fptu.xperience.mobile 1
+```
+- Bật "Unknown sources" khi cài APK từ file.
+
+### 12.5. Kiểm tra login
+1. Mở app → màn login → bấm "Đăng nhập bằng Google"
+2. Chọn tài khoản `@fpt.edu.vn`
+3. App gọi `POST https://clubreporthub.duckdns.org/api/auth/google` body `{ "credential": "<idToken>" }`
+4. **Debug nhanh** — xem log server:
+   ```bash
+   curl -X POST https://clubreporthub.duckdns.org/api/auth/google \
+     -H 'Content-Type: application/json' \
+     -d '{"credential":"<ID_TOKEN>"}'
+   ```
+5. Nếu lỗi:
+   | Lỗi | Nguyên nhân | Xử lý |
+   |---|---|---|
+   | `OAuthError: 12501` | SHA-1 không khớp | Đăng ký SHA-1 đúng keystore đã dùng build (§12.2) |
+   | `OAuthError: 10` | Package name không khớp | Sửa `android.package` + tạo lại OAuth client |
+   | `OAuthError: 12500` | Developer account chưa verify | Thêm email vào Test users |
+   | `401` từ BE | `aud` không khớp `GOOGLE_CLIENT_ID` | Dùng **Web client ID** cho `expo-auth-session` (rủi ro #2) |
+   | `403` từ BE | Email không có trong DB / không có roster / sai domain | Chuẩn bị tài khoản test (rủi ro #3) |

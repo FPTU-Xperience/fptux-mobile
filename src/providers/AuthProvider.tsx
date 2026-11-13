@@ -1,23 +1,22 @@
 // providers/AuthProvider.tsx
 //
-// DEV-TOKEN MODE (quyết định: tạm bỏ qua đăng nhập thật — implement lại ở Phase 7).
+// Provider phiên đăng nhập. Hỗ trợ 2 nguồn token (theo thứ tự ưu tiên):
+//  1. Session Google thật (SecureStore) — loginWithGoogle() (Phase 2)
+//  2. Dev token (.env EXPO_PUBLIC_DEV_ACCESS_TOKEN) — fallback khi chưa build APK Google
 //
-// App chạy với 1 access token dev lấy từ .env (EXPO_PUBLIC_DEV_ACCESS_TOKEN).
-// - status luôn 'authenticated' khi có dev token; 'unauthenticated' khi chưa có.
-// - user: thông tin placeholder (không gọi /api/users/me ở đây để tránh phụ thuộc
-//   token hợp lệ cho bước bootstrap; screen nào cần user thật sẽ gọi qua apiClient).
-// - signOut/expireSession: giữ no-op để không phá call-site. Khi implement login
-//   thật (Phase 7) sẽ thay bằng refresh rotation + SecureStore + session-lost.
+// Refresh/rotation là Phase 7. Đợt này: login + restore + logout cơ bản.
 
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 
+import { loginWithGoogle, logout } from '@/services/auth';
 import { getAccessToken } from '@/services/apiClient';
 import type { AuthStatus, AuthUser, Session } from '@/types/auth';
 
@@ -25,62 +24,101 @@ type AuthContextValue = {
   status: AuthStatus;
   session: Session | null;
   user: AuthUser | null;
-  /** true khi người dùng bị đưa về login vì phiên hết hạn (Phase 7). */
+  /** true khi phiên hết hạn và cần đăng nhập lại. */
   sessionExpired: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  /** Gọi khi API trả 401 hoặc phát hiện token hết hạn (Phase 7). */
+  /** Gọi khi API trả 401 (Phase 7: refresh; đợt này chỉ đánh dấu hết hạn). */
   expireSession: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const DEV_USER: AuthUser = {
-  id: 'dev',
-  name: 'FPTU Student',
-  initials: 'FS',
-  email: 'student@fpt.edu.vn',
-  campus: 'FPTU Hà Nội',
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Có dev token → coi như đã đăng nhập. Không còn trạng thái 'loading'.
-  const hasDevToken = getAccessToken() !== null;
+  const [status, setStatus] = useState<AuthStatus>('loading');
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [status] = useState<AuthStatus>(hasDevToken ? 'authenticated' : 'unauthenticated');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // restoreSession() (load SecureStore + setRuntimeToken) chạy ở đây
+      const { restoreSession } = await import('@/services/auth');
+      const restored = await restoreSession();
+      if (cancelled) return;
+      // Có session Google HOẶC dev token → authenticated
+      const token = restored?.accessToken ?? getAccessToken();
+      if (token) {
+        setUser(
+          restored?.user
+            ? toAuthUser(restored.user)
+            : { id: 'dev', name: 'FPTU Student', initials: 'FS', email: 'student@fpt.edu.vn', campus: 'FPTU Hà Nội' },
+        );
+        setSession(
+          {
+            accessToken: token,
+            user: restored?.user ?? null,
+            expiresAt: restored ? Date.parse(restored.expiresAtUtc) : Number.MAX_SAFE_INTEGER,
+            source: restored ? 'google' : 'dev',
+          } as unknown as Session,
+        );
+        setStatus('authenticated');
+      } else {
+        setStatus('unauthenticated');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signIn = useCallback(async () => {
+    setStatus('loading');
+    setSessionExpired(false);
+    try {
+      const s = await loginWithGoogle();
+      setUser(toAuthUser(s.user));
+      setSession({
+        accessToken: s.accessToken,
+        user: s.user,
+        expiresAt: Date.parse(s.expiresAtUtc),
+        source: 'google',
+      } as unknown as Session);
+      setStatus('authenticated');
+    } catch {
+      // Giữ nguyên trạng thái (unauthenticated nếu chưa có dev token)
+      setStatus(getAccessToken() ? 'authenticated' : 'unauthenticated');
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
-    // Phase 7: gọi POST /api/auth/logout rồi clear SecureStore.
+    await logout();
+    setUser(null);
+    setSession(null);
+    setStatus('unauthenticated');
   }, []);
 
   const expireSession = useCallback(async () => {
     setSessionExpired(true);
   }, []);
 
-  const signIn = useCallback(async () => {
-    // Phase 7: Google OAuth / email-login → lưu session.
-  }, []);
-
   const value = useMemo<AuthContextValue>(
-    () => ({
-      status,
-      session: hasDevToken
-        ? ({
-            accessToken: '',
-            user: DEV_USER,
-            expiresAt: Number.MAX_SAFE_INTEGER,
-          } as unknown as Session)
-        : null,
-      user: hasDevToken ? DEV_USER : null,
-      sessionExpired,
-      signIn,
-      signOut,
-      expireSession,
-    }),
-    [status, hasDevToken, sessionExpired, signIn, signOut, expireSession],
+    () => ({ status, session, user, sessionExpired, signIn, signOut, expireSession }),
+    [status, session, user, sessionExpired, signIn, signOut, expireSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function toAuthUser(u: { fullName: string; email: string; id: number }): AuthUser {
+  const initials = u.fullName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase() ?? '')
+    .join('');
+  return { id: String(u.id), name: u.fullName, initials, email: u.email, campus: '' };
 }
 
 export function useAuth(): AuthContextValue {

@@ -12,7 +12,7 @@ import SsoSection from '@/components/login/SsoSection';
 import { useAuth } from '@/providers/AuthProvider';
 
 export default function LoginScreen() {
-  const { signIn, signOut, sessionExpired, status } = useAuth();
+  const { signIn, sessionExpired, status } = useAuth();
   const [loading, setLoading] = useState(false);
 
   const noToken = status === 'unauthenticated';
@@ -21,16 +21,14 @@ export default function LoginScreen() {
     if (loading) return;
     setLoading(true);
     try {
-      // DEV-TOKEN MODE: signIn hiện là no-op; khi dev token hợp lệ, guard
-      // của Stack.Protected đã đưa app vào màn chính. Nút này chờ Phase 7.
+      // Google Sign-In thật (expo-auth-session) → POST /api/auth/google → lưu SecureStore.
+      // Thành công => guard của Stack.Protected tự đưa app vào màn chính.
       await signIn();
-      signOut(); // giữ trạng thái unauthenticated khi chưa có token thật
-      Alert.alert(
-        'Cần token phát triển',
-        'App đang ở chế độ dev-token. Hãy đặt EXPO_PUBLIC_DEV_ACCESS_TOKEN trong .env rồi khởi động lại, hoặc chờ tính năng đăng nhập thật (Phase 7).',
-      );
     } catch (e) {
-      Alert.alert('Đăng nhập thất bại', e instanceof Error ? e.message : 'Vui lòng thử lại sau.');
+      Alert.alert(
+        'Đăng nhập thất bại',
+        e instanceof Error && e.message ? e.message : 'Vui lòng thử lại sau.',
+      );
     } finally {
       setLoading(false);
     }
@@ -84,16 +82,20 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', marginTop: 20 },
   footerText: { fontSize: 11, color: '#9CA3AF' },
   footerBrand: { fontWeight: '800', color: '#6B7280' },
+  notice: { marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FFF7ED' },
+  noticeText: { fontSize: 12, color: '#9A3412', lineHeight: 18 },
+  noticeTitle: { fontWeight: '800' },
+  noticeCode: { fontWeight: '700' },
 });
 
 function DevTokenNotice() {
   return (
-    <View style={{ marginBottom: 16, padding: 12, borderRadius: 12, backgroundColor: '#FFF7ED' }}>
-      <Text style={{ fontSize: 12, color: '#9A3412', lineHeight: 18 }}>
-        <Text style={{ fontWeight: '800' }}>Chế độ phát triển. </Text>
-        App đang dùng{' '}
-        <Text style={{ fontWeight: '700' }}>EXPO_PUBLIC_DEV_ACCESS_TOKEN</Text>. Đặt token thật vào .env
-        để đọc dữ liệu thật từ API.
+    <View style={styles.notice}>
+      <Text style={styles.noticeText}>
+        <Text style={styles.noticeTitle}>Chưa có Google client ID. </Text>
+        Đặt{' '}
+        <Text style={styles.noticeCode}>EXPO_PUBLIC_GOOGLE_CLIENT_ID</Text> (Web client ID) trong
+        .env rồi build lại app để đăng nhập bằng Google.
       </Text>
     </View>
   );

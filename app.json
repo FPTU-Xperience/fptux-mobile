@@ -11,6 +11,7 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "vn.fptu.xperience.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -45,7 +46,13 @@
           "locationWhenInUsePermission": "Cho phép ứng dụng lấy vị trí để xác nhận điểm danh."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "react-native-nitro-google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.XXXXX"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
