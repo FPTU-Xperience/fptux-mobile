@@ -1,0 +1,124 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: API Gateway base URL (bỏ trống để dùng vars.EXPO_PUBLIC_API_URL)
+        type: string
+        default: ''
+      release_channel:
+        description: Kênh phát hành nội bộ
+        type: string
+        default: internal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-build
+  cancel-in-progress: false
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Cùng secret với web UI (fptu-xperience-clubhub-ui/.github/workflows/deployment.yml)
+      # và API (fptu-xperience-clubhub-api dùng GOOGLE_CLIENT_ID = secret này).
+      # Mobile inlines EXPO_PUBLIC_GOOGLE_CLIENT_ID vào JS bundle LÚC BUILD
+      # (thư viện Google Sign-In require native + web client ID để token `aud` khớp BE).
+      # Cần set ở org-level (hoặc repo mobile) vì GitHub vars/secrets là per-repo.
+      EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.CLUBHUB_GOOGLE_CLIENT_ID }}
+      # API base URL mobile — cùng nguồn var với web (VITE_API_BASE_URL).
+      # Có thể override bằng input dispatch.
+      EXPO_PUBLIC_API_URL: ${{ inputs.api_base_url || vars.VITE_API_BASE_URL }}
+      # Fallback dev-token riêng mobile (không có ở web). Optional: resolve thành
+      # chuỗi rỗng nếu secret chưa set — app vẫn đăng nhập bằng Google.
+      EXPO_PUBLIC_DEV_ACCESS_TOKEN: ${{ secrets.CLUBHUB_DEV_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Java (JDK 21)
+        # AGP 9.2.1 + Gradle 9.4.1 + RN 0.88.1 → JDK 21 (cached on ubuntu-latest).
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Android SDK components — pin khớp giá trị mà ExpoRootProjectPlugin.kt resolve
+      # (node_modules/expo-modules-autolinking/.../ExpoRootProjectPlugin.kt:204-208):
+      #   compileSdk 37 · buildTools 37.0.0 · targetSdk 36 · NDK 27.1.12297006 · CMake 3.22.1
+      # NDK + CMake bắt buộc: react-native-nitro-modules & react-native-worklets compile C++.
+      # packages: tách bằng khoảng trắng; mỗi token truyền thẳng cho sdkmanager (nên giữ
+      # nguyên "path;version"). Lưu ý platform 37 dùng scheme minor-version → "android-37.0",
+      # KHÔNG phải "android-37" (đã verify qua `sdkmanager --list`).
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: yes
+          packages: >-
+            platform-tools
+            platforms;android-37.0
+            build-tools;37.0.0
+            ndk;27.1.12297006
+            cmake;3.22.1
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # Kiểm tra chất lượng: KHÔNG chặn build APK (repo còn lỗi template sẵn có,
+      # xem src/components/ui/collapsible.tsx và các file trong src/app/(tabs)).
+      # Muốn chặn cứng: bỏ continue-on-error sau khi các lỗi nền đã dọn.
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Typecheck
+        continue-on-error: true
+        run: npx tsc --noEmit
+
+      # Prebuild sinh thư mục android/ từ app.json (native code của các thư viện:
+      # react-native-nitro-google-signin, expo-camera, expo-location, expo-secure-store).
+      # android/ bị gitignore nên CI luôn prebuild từ đầu — không cần commit native project.
+      - name: Prebuild Android
+        run: npx expo prebuild --clean --platform android --no-install
+
+      # Gradle cần biết đường dẫn SDK (ANDROID_HOME đã được setup-android set).
+      - name: Point Gradle to the Android SDK
+        run: echo "sdk.dir=${ANDROID_HOME}" > android/local.properties
+
+      # Release variant → JS bundle được nhúng vào APK ⇒ app chạy độc lập, không cần Metro.
+      # (Debug variant không nhúng bundle → "Invariant Violation: __fbBatchedBridgeConfig is not set".)
+      - name: Build release APK
+        run: ./android/gradlew -p android :app:assembleRelease --no-daemon
+
+      - name: Collect artifact
+        run: |
+          set -Eeuo pipefail
+          apk="android/app/build/outputs/apk/release/app-release.apk"
+          test -f "${apk}"
+          cp "${apk}" app-debug.apk
+          sha256sum app-debug.apk | tee app-debug.apk.sha256
+          ls -lh app-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: |
+            app-debug.apk
+            app-debug.apk.sha256
+          retention-days: 30
+          if-no-files-found: error
