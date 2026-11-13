@@ -92,14 +92,13 @@ jobs:
       # để resolve project/credentials (auth).
       - name: Build Debug APK locally via EAS
         run: |
-          npx eas build \
+          npx --yes eas-cli build \
             --platform android \
             --profile development \
             --local \
             --non-interactive \
             --output ./app-debug.apk
         env:
-          # EXPO_TOKEN (đến từ expo/expo-github-action) dùng để auth EAS local build.
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Upload to Cloudflare R2
