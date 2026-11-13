@@ -4,15 +4,6 @@
     "appVersionSource": "remote"
   },
   "build": {
-    "debug-apk": {
-      "distribution": "internal",
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://clubreporthub.duckdns.org"
-      }
-    },
     "development": {
       "developmentClient": true,
       "distribution": "internal",
