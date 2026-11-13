@@ -16,8 +16,8 @@ import {
   type ReactNode,
 } from 'react';
 
-import { loginWithGoogle, logout } from '@/services/auth';
-import { getAccessToken } from '@/services/apiClient';
+import { loginWithEmail, loginWithGoogle, logout, refreshAccessToken } from '@/services/auth';
+import { getAccessToken, setAuthFailureHandler, setRefreshHandler } from '@/services/apiClient';
 import type { AuthStatus, AuthUser, Session } from '@/types/auth';
 
 type AuthContextValue = {
@@ -27,6 +27,8 @@ type AuthContextValue = {
   /** true khi phiên hết hạn và cần đăng nhập lại. */
   sessionExpired: boolean;
   signIn: () => Promise<void>;
+  /** Đăng nhập bằng email + mật khẩu (POST /api/auth/email-login). */
+  signInWithEmail: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** Gọi khi API trả 401 (Phase 7: refresh; đợt này chỉ đánh dấu hết hạn). */
   expireSession: () => Promise<void>;
@@ -40,6 +42,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  // apiClient gọi 2 handler này:
+  // - refreshHandler: nhận 401 → refresh access token rồi thử lại request.
+  // - authFailureHandler: refresh hỏng → phiên hết hạn, đưa user về login.
+  useEffect(() => {
+    setRefreshHandler(refreshAccessToken);
+    setAuthFailureHandler(() => {
+      // Phiên hết hạn thật (refresh token chết) → đăng xuất khỏi app để
+      // guard của Stack.Protected đưa user về màn login, kèm cảnh báo.
+      setSessionExpired(true);
+      setUser(null);
+      setSession(null);
+      setStatus('unauthenticated');
+    });
+    return () => {
+      setRefreshHandler(null);
+      setAuthFailureHandler(null);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -47,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { restoreSession } = await import('@/services/auth');
       const restored = await restoreSession();
       if (cancelled) return;
-      // Có session Google HOẶC dev token → authenticated
+      // Có session (Google/email) HOẶC dev token → authenticated
       const token = restored?.accessToken ?? getAccessToken();
       if (token) {
         setUser(
@@ -60,7 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             accessToken: token,
             user: restored?.user ?? null,
             expiresAt: restored ? Date.parse(restored.expiresAtUtc) : Number.MAX_SAFE_INTEGER,
-            source: restored ? 'google' : 'dev',
+            // Giữ nguồn đăng nhập đã lưu; session cũ (trước khi có `source`) coi là google.
+            source: restored?.source ?? (restored ? 'google' : 'dev'),
           } as unknown as Session,
         );
         setStatus('authenticated');
@@ -92,6 +114,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const signInWithEmail = useCallback(async (email: string, password: string) => {
+    setStatus('loading');
+    setSessionExpired(false);
+    try {
+      const s = await loginWithEmail(email, password);
+      setUser(toAuthUser(s.user));
+      setSession({
+        accessToken: s.accessToken,
+        user: s.user,
+        expiresAt: Date.parse(s.expiresAtUtc),
+        source: 'email',
+      } as unknown as Session);
+      setStatus('authenticated');
+    } catch (e) {
+      // Trả lỗi cho UI hiển thị (sai email/mật khẩu, tài khoản bị khoá, mạng...).
+      setStatus(getAccessToken() ? 'authenticated' : 'unauthenticated');
+      throw e;
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     await logout();
     setUser(null);
@@ -99,13 +141,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
+  /** Đánh dấu phiên hết hạn và đưa user về màn login. */
   const expireSession = useCallback(async () => {
     setSessionExpired(true);
+    setUser(null);
+    setSession(null);
+    setStatus('unauthenticated');
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, session, user, sessionExpired, signIn, signOut, expireSession }),
-    [status, session, user, sessionExpired, signIn, signOut, expireSession],
+    () => ({ status, session, user, sessionExpired, signIn, signInWithEmail, signOut, expireSession }),
+    [status, session, user, sessionExpired, signIn, signInWithEmail, signOut, expireSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,6 @@
 // app/club/[id].tsx
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,35 +18,30 @@ import ClubHero from '@/components/club-detail/ClubHero';
 import ClubSummary from '@/components/club-detail/ClubSummary';
 import ClubTopBar from '@/components/club-detail/ClubTopBar';
 import HighlightsCard from '@/components/club-detail/HighlightsCard';
+import JoinForm from '@/components/club-detail/JoinForm';
 import LeadersCard from '@/components/club-detail/LeadersCard';
 import MeetCard from '@/components/club-detail/MeetCard';
 import UpcomingEventsCard from '@/components/club-detail/UpcomingEventsCard';
-import { applyToClub, fetchClubDetail } from '@/services/mockClubDetail';
-import type { ApplyState, ClubDetail } from '@/types/clubDetail';
+import ErrorState from '@/components/common/ErrorState';
+import { useApiState } from '@/hooks/useApiState';
+import { useAuth } from '@/providers/AuthProvider';
+import { fetchClubDetail } from '@/services/clubs';
+import type { ApplyState } from '@/types/clubDetail';
 
 export default function ClubDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const clubId = String(id ?? '');
+  const { user } = useAuth();
 
-  const [club, setClub] = useState<ClubDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [bookmarked, setBookmarked] = useState(false);
   const [applied, setApplied] = useState(false);
-  const [applying, setApplying] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    setLoading(true);
-    fetchClubDetail(String(id)).then((data) => {
-      if (cancelled) return;
-      setClub(data);
-      setLoading(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
+  const { data: club, loading, error, hasError, retry } = useApiState(
+    () => fetchClubDetail(clubId),
+    [clubId],
+  );
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -58,18 +53,15 @@ export default function ClubDetailScreen() {
     Share.share({ message: `${club.name} – ${club.slogan}` });
   };
 
-  const handleApply = async () => {
-    if (!club || applying || applied) return;
-    setApplying(true);
-    const result = await applyToClub(club.id);
-    setApplying(false);
-    if (result.success) setApplied(true);
-    Alert.alert(result.success ? 'Đã gửi hồ sơ' : 'Gửi hồ sơ thất bại', result.message);
+  /** Mở form gia nhập (quyết định scope #1) thay vì nộp 1 chạm. */
+  const handleApply = () => {
+    if (!club || applied) return;
+    setJoinOpen(true);
   };
 
   const applyState: ApplyState = {
     applied,
-    loading: applying,
+    loading: false,
     disabled: club ? !club.recruiting : false,
   };
 
@@ -83,7 +75,11 @@ export default function ClubDetailScreen() {
         onShare={handleShare}
       />
 
-      {loading ? (
+      {hasError && error ? (
+        <View style={styles.center}>
+          <ErrorState message={error} onRetry={retry} loading={loading} />
+        </View>
+      ) : loading && !club ? (
         <ActivityIndicator color="#F97316" style={styles.center} />
       ) : !club ? (
         <View style={styles.center}>
@@ -118,6 +114,18 @@ export default function ClubDetailScreen() {
           <ClubActionBar apply={applyState} onApply={handleApply} />
         </>
       )}
+
+      <JoinForm
+        visible={joinOpen}
+        clubId={clubId}
+        clubName={club?.name ?? ''}
+        user={user}
+        onClose={() => setJoinOpen(false)}
+        onSuccess={() => {
+          setApplied(true);
+          Alert.alert('Đã gửi hồ sơ', 'Hồ sơ của bạn đã được gửi tới ban chủ nhiệm CLB.');
+        }}
+      />
     </View>
   );
 }

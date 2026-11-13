@@ -6,14 +6,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ALLOWED_DOMAINS, CAMPUSES } from '@/constants/auth';
 import BrandHeader from '@/components/login/BrandHeader';
 import CampusList from '@/components/login/CampusList';
+import EmailLoginForm from '@/components/login/EmailLoginForm';
 import HelpNote from '@/components/login/HelpNote';
 import PromoCard from '@/components/login/PromoCard';
 import SsoSection from '@/components/login/SsoSection';
 import { useAuth } from '@/providers/AuthProvider';
 
 export default function LoginScreen() {
-  const { signIn, sessionExpired, status } = useAuth();
+  const { signIn, signInWithEmail, sessionExpired, status } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   const noToken = status === 'unauthenticated';
 
@@ -34,6 +37,22 @@ export default function LoginScreen() {
     }
   };
 
+  const handleEmail = async (email: string, password: string) => {
+    if (emailLoading) return;
+    setEmailLoading(true);
+    setEmailError(null);
+    try {
+      // POST /api/auth/email-login → lưu SecureStore. Thành công => guard tự chuyển màn.
+      await signInWithEmail(email, password);
+    } catch (e) {
+      const message = e instanceof Error && e.message ? e.message : 'Vui lòng thử lại sau.';
+      setEmailError(message);
+      throw e; // để EmailLoginForm hiển thị lỗi ngay trong form
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <ScrollView
@@ -42,6 +61,12 @@ export default function LoginScreen() {
         <BrandHeader />
         <PromoCard />
         {noToken ? <DevTokenNotice /> : null}
+        <EmailLoginForm
+          onSubmit={handleEmail}
+          loading={emailLoading}
+          error={emailError}
+          onClearError={() => setEmailError(null)}
+        />
         <SsoSection
           domains={ALLOWED_DOMAINS}
           loading={loading}
@@ -93,9 +118,9 @@ function DevTokenNotice() {
     <View style={styles.notice}>
       <Text style={styles.noticeText}>
         <Text style={styles.noticeTitle}>Chưa có Google client ID. </Text>
-        Đặt{' '}
-        <Text style={styles.noticeCode}>EXPO_PUBLIC_GOOGLE_CLIENT_ID</Text> (Web client ID) trong
-        .env rồi build lại app để đăng nhập bằng Google.
+        Bạn có thể đăng nhập ngay bằng email/mật khẩu phía trên. Muốn dùng Google,
+        đặt <Text style={styles.noticeCode}>EXPO_PUBLIC_GOOGLE_CLIENT_ID</Text> (Web client ID)
+        trong .env rồi build lại app.
       </Text>
     </View>
   );

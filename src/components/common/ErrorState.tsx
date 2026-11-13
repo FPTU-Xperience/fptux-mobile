@@ -2,6 +2,8 @@
 import { AlertCircle, RefreshCw } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '@/hooks/use-theme';
+
 type Props = {
   /** Thông điệp lỗi đã chuẩn hóa tiếng Việt (từ getApiErrorMessage). */
   message: string;
@@ -21,6 +23,8 @@ export default function ErrorState({
   loading = false,
   hideRetry = false,
 }: Props) {
+  const theme = useTheme();
+
   return (
     <View style={styles.root}>
       <View style={styles.iconWrap}>
@@ -30,8 +34,8 @@ export default function ErrorState({
           <AlertCircle color="#EF4444" size={26} />
         )}
       </View>
-      <Text style={styles.title}>Không tải được dữ liệu</Text>
-      <Text style={styles.message}>{message}</Text>
+      <Text style={[styles.title, { color: theme.text }]}>Không tải được dữ liệu</Text>
+      <Text style={[styles.message, { color: theme.textSecondary }]}>{message}</Text>
       {!hideRetry && onRetry ? (
         <Pressable
           accessibilityRole="button"
@@ -63,8 +67,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  title: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  message: { fontSize: 13, lineHeight: 19, color: '#6B7280', textAlign: 'center' },
+  title: { fontSize: 15, fontWeight: '800' },
+  message: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   button: {
     marginTop: 8,
     flexDirection: 'row',

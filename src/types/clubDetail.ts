@@ -15,7 +15,7 @@ export interface ClubMeetInfo {
 }
 
 export interface ClubUpcomingEvent {
-  /** Trùng với id trong mockActivityDetail để mở được màn chi tiết hoạt động */
+  /** Trùng id hoạt động (để mở màn chi tiết hoạt động) */
   id: string;
   day: string;
   /** vd: "T11" */

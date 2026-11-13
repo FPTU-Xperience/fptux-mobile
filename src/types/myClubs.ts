@@ -3,7 +3,7 @@ export type ApplicationTabKey = 'pending' | 'approved' | 'history';
 export type ApplicationResult = 'pending' | 'approved' | 'rejected';
 
 export interface MyClubActivity {
-  /** Trùng id trong mockActivityDetail để mở được màn chi tiết hoạt động */
+  /** Trùng id hoạt động (để mở màn chi tiết hoạt động) */
   id: string;
   title: string;
   date: string;

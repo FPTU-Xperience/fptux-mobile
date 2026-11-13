@@ -1,6 +1,6 @@
 // app/(tabs)/my-clubs.tsx
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import ApplicationsCard from '@/components/my-clubs/ApplicationsCard';
@@ -8,53 +8,32 @@ import FeaturedClubs from '@/components/my-clubs/FeaturedClubs';
 import MyClubCard from '@/components/my-clubs/MyClubCard';
 import MyClubsHeader from '@/components/my-clubs/MyClubsHeader';
 import MyClubsTopBar from '@/components/my-clubs/MyClubsTopBar';
-import { applyToClub } from '@/services/mockClubDetail';
-import { fetchMyClubs } from '@/services/mockMyClubs';
-import type { Application, FeaturedClub, MyClubsFeed } from '@/types/myClubs';
-
-const todayText = () => {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-};
+import JoinForm from '@/components/club-detail/JoinForm';
+import ErrorState from '@/components/common/ErrorState';
+import { useApiState } from '@/hooks/useApiState';
+import { useAuth } from '@/providers/AuthProvider';
+import { fetchMyClubs } from '@/services/myClubs';
+import type { FeaturedClub } from '@/types/myClubs';
 
 export default function MyClubsScreen() {
   const router = useRouter();
-  const [feed, setFeed] = useState<MyClubsFeed | null>(null);
-  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchMyClubs().then((data) => {
-      if (!cancelled) setFeed(data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const [joinTarget, setJoinTarget] = useState<FeaturedClub | null>(null);
+
+  const {
+    data: feed,
+    loading,
+    error,
+    hasError,
+    retry,
+  } = useApiState(() => fetchMyClubs(user?.campus ?? ''), []);
 
   const openClub = (id: string) => router.push({ pathname: '/club/[id]', params: { id } });
 
-  const handleJoin = async (club: FeaturedClub) => {
-    if (joiningId) return;
-    setJoiningId(club.id);
-    const result = await applyToClub(club.id);
-    setJoiningId(null);
-
-    if (result.success) {
-      const application: Application = {
-        id: `new-${Date.now()}`,
-        clubId: club.id,
-        clubName: club.name,
-        appliedAt: todayText(),
-        tab: 'pending',
-        result: 'pending',
-      };
-      setFeed((prev) =>
-        prev ? { ...prev, applications: [application, ...prev.applications] } : prev,
-      );
-    }
-    Alert.alert(result.success ? 'Đã gửi đơn' : 'Gửi đơn thất bại', result.message);
+  /** Mở form gia nhập cho CLB đang tuyển (quyết định scope #1). */
+  const handleJoin = (club: FeaturedClub) => {
+    setJoinTarget(club);
   };
 
   const pendingIds = new Set(
@@ -68,7 +47,9 @@ export default function MyClubsScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <MyClubsHeader onExplore={() => router.navigate('/allClubs')} />
 
-        {!feed ? (
+        {hasError && error ? (
+          <ErrorState message={error} onRetry={retry} loading={loading} />
+        ) : !feed ? (
           <ActivityIndicator color="#F97316" style={styles.loader} />
         ) : (
           <>
@@ -95,7 +76,7 @@ export default function MyClubsScreen() {
             <FeaturedClubs
               clubs={feed.featured}
               pendingIds={pendingIds}
-              joiningId={joiningId}
+              joiningId={null}
               onPressClub={(c) => openClub(c.id)}
               onJoin={handleJoin}
               onPressAll={() => router.navigate('/allClubs')}
@@ -103,6 +84,20 @@ export default function MyClubsScreen() {
           </>
         )}
       </ScrollView>
+
+      <JoinForm
+        visible={joinTarget !== null}
+        clubId={joinTarget?.id ?? ''}
+        clubName={joinTarget?.name ?? ''}
+        user={user}
+        onClose={() => setJoinTarget(null)}
+        onSuccess={() => {
+          // Nạp lại danh sách từ API (nguồn sự thật) — hồ sơ đang chờ sẽ
+          // xuất hiện trong tab "Đang chờ" sau khi gửi.
+          retry();
+          Alert.alert('Đã gửi đơn', 'Hồ sơ của bạn đã được gửi tới ban chủ nhiệm CLB.');
+        }}
+      />
     </View>
   );
 }

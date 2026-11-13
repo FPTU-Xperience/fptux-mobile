@@ -21,7 +21,12 @@ export interface MobileSession {
   /** ISO — refresh token hết hạn (nếu BE có trả). */
   refreshToken?: string | null;
   refreshTokenExpiresAtUtc?: string | null;
+  /** Nguồn đăng nhập — để khôi phục session không gán nhầm 'google'. */
+  source?: SessionSource;
 }
+
+/** Nguồn đăng nhập (khớp với Session.source trong types/auth.ts). */
+export type SessionSource = 'google' | 'email' | 'dev';
 
 async function getSecureStore() {
   return import('expo-secure-store');

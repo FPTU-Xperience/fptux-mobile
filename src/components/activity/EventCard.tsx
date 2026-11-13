@@ -12,6 +12,7 @@ import {
 } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '@/hooks/use-theme';
 import type { ActivityEvent, ActivityStatus, VenueKind } from '@/types/activity';
 
 const STATUS_LABEL: Record<ActivityStatus, string> = {
@@ -37,7 +38,7 @@ type Props = {
   onPressDetail?: (event: ActivityEvent) => void;
 };
 
-function Footer({ event }: { event: ActivityEvent }) {
+function Footer({ event, theme }: { event: ActivityEvent; theme: ReturnType<typeof useTheme> }) {
   const { kind, label } = event.footer;
 
   if (kind === 'attendees') {
@@ -47,7 +48,7 @@ function Footer({ event }: { event: ActivityEvent }) {
           <View style={[styles.mini, { backgroundColor: '#DBEAFE' }]} />
           <View style={[styles.mini, styles.miniOverlap, { backgroundColor: '#FDE68A' }]} />
         </View>
-        <Text style={styles.footerText}>{label}</Text>
+        <Text style={[styles.footerText, { color: theme.textSecondary }]}>{label}</Text>
       </View>
     );
   }
@@ -56,16 +57,17 @@ function Footer({ event }: { event: ActivityEvent }) {
   return (
     <View style={styles.footerLeft}>
       <Icon size={14} color="#F97316" />
-      <Text style={styles.footerText}>{label}</Text>
+      <Text style={[styles.footerText, { color: theme.textSecondary }]}>{label}</Text>
     </View>
   );
 }
 
 export default function EventCard({ event, onPressDetail }: Props) {
+  const theme = useTheme();
   const VenueIcon = VENUE_ICON[event.venue.kind];
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: theme.background }]}>
       {/* Banner */}
       <View style={[styles.banner, { backgroundColor: event.bannerColor }]}>
         <View style={styles.bannerDeco} />
@@ -96,20 +98,20 @@ export default function EventCard({ event, onPressDetail }: Props) {
         </View>
 
         <View style={styles.infoBody}>
-          <Text style={styles.organizer} numberOfLines={1}>
+          <Text style={[styles.organizer, { color: theme.textSecondary }]} numberOfLines={1}>
             {event.organizer}
           </Text>
-          <Text style={styles.name} numberOfLines={1}>
+          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
             {event.name}
           </Text>
           <View style={styles.metaRow}>
             <View style={styles.meta}>
               <Clock size={12} color="#F97316" />
-              <Text style={styles.metaText}>{event.time}</Text>
+              <Text style={[styles.metaText, { color: theme.textSecondary }]}>{event.time}</Text>
             </View>
             <View style={styles.meta}>
               <VenueIcon size={12} color="#F97316" />
-              <Text style={styles.metaText} numberOfLines={1}>
+              <Text style={[styles.metaText, { color: theme.textSecondary }]} numberOfLines={1}>
                 {event.venue.label}
               </Text>
             </View>
@@ -117,11 +119,11 @@ export default function EventCard({ event, onPressDetail }: Props) {
         </View>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.backgroundElement }]} />
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Footer event={event} />
+        <Footer event={event} theme={theme} />
         <Pressable style={styles.detail} onPress={() => onPressDetail?.(event)}>
           <Text style={styles.detailText}>Xem chi tiết</Text>
           <ArrowUpRight size={14} color="#F97316" />
@@ -133,7 +135,6 @@ export default function EventCard({ event, onPressDetail }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -193,13 +194,13 @@ const styles = StyleSheet.create({
   day: { fontSize: 22, fontWeight: '800', lineHeight: 24 },
   month: { fontSize: 8, fontWeight: '700', marginTop: 2 },
   infoBody: { flex: 1, justifyContent: 'center' },
-  organizer: { fontSize: 11, color: '#6B7280' },
-  name: { fontSize: 16, fontWeight: '800', color: '#111827', marginTop: 2 },
+  organizer: { fontSize: 11 },
+  name: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   metaRow: { flexDirection: 'row', gap: 12, marginTop: 6 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 },
-  metaText: { fontSize: 11, color: '#6B7280', flexShrink: 1 },
+  metaText: { fontSize: 11, flexShrink: 1 },
 
-  divider: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 14 },
+  divider: { height: 1, marginHorizontal: 14 },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,7 +209,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   footerLeft: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  footerText: { fontSize: 12, color: '#6B7280', fontWeight: '500' },
+  footerText: { fontSize: 12, fontWeight: '500' },
   avatars: { flexDirection: 'row' },
   mini: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: '#fff' },
   miniOverlap: { marginLeft: -8 },

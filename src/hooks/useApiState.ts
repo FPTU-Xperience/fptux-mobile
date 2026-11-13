@@ -14,7 +14,7 @@
 //     [keyword, filter, recruitingOnly],
 //   );
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getApiErrorMessage } from '@/services/apiClient';
 
@@ -54,7 +54,10 @@ export function useApiState<T>(fetcher: () => Promise<T>, deps: readonly unknown
     fetcherRef.current = fetcher;
   });
 
-  const key = useMemo(() => `${depsKey(deps)}#${nonce}`, [deps, nonce]);
+  // Key ổn định theo NỘI DUNG deps (depsKey) + nonce (retry).
+  // Không dùng useMemo vì identity của mảng deps đổi mỗi render — memo hoá
+  // trên identity đó vô nghĩa. depsKey là JSON.stringify nên rẻ.
+  const key = `${depsKey(deps)}#${nonce}`;
 
   const retry = useCallback(() => setNonce((n) => n + 1), []);
 

@@ -1,9 +1,11 @@
 // components/common/AppTopBar.tsx
 import { usePathname, useRouter } from 'expo-router';
 import { Bell, ScanQrCode } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/providers/AuthProvider';
+import { fetchUnreadCount } from '@/services/notifications';
 
 type Props = { title: string };
 
@@ -11,6 +13,25 @@ export default function AppTopBar({ title }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+
+  // Số thông báo chưa đọc — badge chỉ hiện khi > 0 (trước đây là chấm cứng).
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchUnreadCount()
+      .then((count) => {
+        if (!cancelled) setUnread(count);
+      })
+      .catch(() => {
+        // Lỗi badge không được làm hỏng thanh trên cùng.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   // Đang ở màn quét thì không cần nút quét nữa
   const showScan = pathname !== '/scan';
@@ -46,7 +67,15 @@ export default function AppTopBar({ title }: Props) {
 
         <View>
           <Bell size={22} color="#374151" />
-          <View style={styles.dot} />
+          {unread > 0 ? (
+            unread > 99 ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>99+</Text>
+              </View>
+            ) : (
+              <View style={styles.dot} />
+            )
+          ) : null}
         </View>
 
         <Pressable style={styles.avatar} onPress={confirmSignOut} hitSlop={6}>
@@ -103,6 +132,19 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#fff',
   },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: '#F97316',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { color: '#fff', fontSize: 9.5, fontWeight: '800' },
   avatar: {
     width: 30,
     height: 30,

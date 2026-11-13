@@ -5,37 +5,31 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import EventCard from '@/components/activity/EventCard';
+import ErrorState from '@/components/common/ErrorState';
 import FilterChips from '@/components/common/FilterChips';
 import ScreenHeader from '@/components/common/ScreenHeader';
 import ScreenLayout from '@/components/common/ScreenLayout';
 import SearchBar from '@/components/common/SearchBar';
-import { fetchActivities } from '@/services/mockActivities';
-import type { ActivityFeed, ActivityEvent, FilterKey } from '@/types/activity';
+import { useApiState } from '@/hooks/useApiState';
+import { fetchActivities } from '@/services/activities';
+import type { ActivityEvent, FilterKey } from '@/types/activity';
 
 export default function ActivityScreen() {
   const router = useRouter();
-  const [feed, setFeed] = useState<ActivityFeed | null>(null);
-  const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
   const [filter, setFilter] = useState<FilterKey>('all');
 
+  // Debounce từ khoá 250ms.
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+    const timer = setTimeout(() => setDebouncedKeyword(keyword), 250);
+    return () => clearTimeout(timer);
+  }, [keyword]);
 
-    const timer = setTimeout(async () => {
-      const data = await fetchActivities({ keyword, filter });
-      if (!cancelled) {
-        setFeed(data);
-        setLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [keyword, filter]);
+  const { data: feed, loading, error, hasError, retry } = useApiState(
+    () => fetchActivities({ keyword: debouncedKeyword, filter }),
+    [debouncedKeyword, filter],
+  );
 
   const openDetail = (event: ActivityEvent) => {
     router.push({ pathname: '/event/[id]', params: { id: event.id } });
@@ -66,7 +60,9 @@ export default function ActivityScreen() {
         <Text style={styles.semester}>{feed?.semester}</Text>
       </View>
 
-      {loading && !feed ? (
+      {hasError && error ? (
+        <ErrorState message={error} onRetry={retry} loading={loading} />
+      ) : loading && !feed ? (
         <ActivityIndicator color="#F97316" style={styles.loader} />
       ) : (
         <View style={[styles.list, loading && styles.dim]}>

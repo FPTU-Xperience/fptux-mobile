@@ -1,11 +1,12 @@
 // services/apiClient.ts
 //
 // HTTP client cho FPTU ClubHub API Gateway (EXPO_PUBLIC_API_URL).
-// Đợt này dùng dev access token (auth thật là Phase 7 — refresh/rotation, SecureStore).
 //
-// - Mọi request mặc định gắn `Authorization: Bearer <dev token>`.
+// - Mọi request mặc định gắn `Authorization: Bearer <token>` (token runtime từ
+//   login, hoặc dev token từ .env nếu chưa đăng nhập).
 // - Lỗi chuẩn hóa thành ApiError { status, code, errors } + thông điệp tiếng Việt.
-// - Không auto-refresh (chưa có refresh token) → 401 sẽ trả thông điệp rõ.
+// - Auto-refresh: nhận 401 → gọi refreshHandler (services/auth.ts) để lấy access
+//   token mới rồi thử lại request 1 lần. Handler do AuthProvider đăng ký.
 
 const BASE_URL: string =
   (process.env.EXPO_PUBLIC_API_URL ?? 'https://clubreporthub.duckdns.org').replace(/\/+$/, '');
@@ -54,6 +55,41 @@ export interface ApiFetchOptions {
   timeoutMs?: number;
   /** Header bổ sung (vd Idempotency-Key). */
   headers?: Record<string, string>;
+  /**
+   * Bỏ qua cơ chế refresh-token khi gặp 401 — dùng cho chính endpoint
+   * `/api/auth/refresh` để tránh vòng lặp refresh vô hạn.
+   */
+  skipAuthRefresh?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Refresh token — access token sống 30 phút, refresh token sống 7 ngày.
+// Backend ROTATE refresh token (token cũ bị revoke, token mới trả về) và
+// coi là "token reuse" nếu refresh lại bằng token đã bị revoke → **revoke cả
+// family** ⇒ buộc user đăng nhập lại. Vì vậy phải serialize: chỉ 1 refresh
+// chạy tại 1 thời điểm, các request khác chờ chung kết quả đó.
+// ---------------------------------------------------------------------------
+
+/** Làm mới access token. Trả token mới, hoặc null nếu không refresh được. */
+export type RefreshHandler = () => Promise<string | null>;
+
+/** Gọi khi refresh thất bại → phiên hết hạn thật sự. */
+export type AuthFailureHandler = () => void;
+
+let refreshHandler: RefreshHandler | null = null;
+let authFailureHandler: AuthFailureHandler | null = null;
+
+/**
+ * services/auth.ts đăng ký handler ở đây (tránh phụ thuộc vòng:
+ * apiClient không import auth, auth import apiClient).
+ */
+export function setRefreshHandler(handler: RefreshHandler | null): void {
+  refreshHandler = handler;
+}
+
+/** AuthProvider đăng ký để chuyển user về màn login khi phiên hết hạn. */
+export function setAuthFailureHandler(handler: AuthFailureHandler | null): void {
+  authFailureHandler = handler;
 }
 
 export interface ApiResponse<T> {
@@ -125,12 +161,28 @@ async function doFetch(
  * qua API_ERROR_MESSAGES nếu có code; không có code thì dùng message server hoặc HTTP status).
  */
 export async function apiFetch<T>(path: string, opts: ApiFetchOptions = {}): Promise<T> {
-  const token = opts.auth === false ? null : getAccessToken();
-  if (opts.auth !== false && !token) {
+  const needsAuth = opts.auth !== false;
+  let token = needsAuth ? getAccessToken() : null;
+  if (needsAuth && !token) {
     // Chưa có dev token: ném lỗi rõ ràng để UI hiện hướng dẫn (không fake data)
     throw new ApiError('CHưa cấu hình EXPO_PUBLIC_DEV_ACCESS_TOKEN trong .env', 401, 'MISSING_DEV_TOKEN', null);
   }
-  const result = await doFetch(path, opts, token);
+  // Access token sống 30 phút → hết hạn nhận 401. Refresh token sống 7 ngày,
+  // BE ROTATE (token cũ bị revoke; refresh lại token cũ = "reuse" → revoke cả
+  // family) ⇒ refreshHandler phải serialize, chỉ chạy 1 lần, trả kết quả cho
+  // mọi request.
+  let result = await doFetch(path, opts, token);
+  let refreshed = false;
+
+  if (!result.ok && result.status === 401 && needsAuth && !opts.skipAuthRefresh && refreshHandler) {
+    const newToken = await refreshHandler();
+    if (newToken) {
+      refreshed = true;
+      token = newToken;
+      result = await doFetch(path, opts, token);
+    }
+  }
+
   if (!result.ok) {
     const errBody = result.data as {
       message?: string | null;
@@ -138,10 +190,17 @@ export async function apiFetch<T>(path: string, opts: ApiFetchOptions = {}): Pro
       errors?: Record<string, string[]> | null;
       status?: number;
     };
+    const status = errBody?.status ?? 0;
+    const code = errBody?.code ?? null;
+    // 401 mà KHÔNG refresh được (thiếu refresh token / refresh bị từ chối) →
+    // phiên hết hạn thật → đưa user về màn login.
+    // 401 sau khi refresh thành công vẫn lỗi → service downstream từ chối token;
+    // không được logout vì có thể chỉ là quyền riêng của endpoint đó.
+    if (status === 401 && needsAuth && !refreshed) authFailureHandler?.();
     throw new ApiError(
-      describeApiError(errBody?.status ?? 0, errBody?.code ?? null, errBody?.message ?? null, errBody?.errors ?? null),
-      errBody?.status ?? 0,
-      errBody?.code ?? null,
+      describeApiError(status, code, errBody?.message ?? null, errBody?.errors ?? null),
+      status,
+      code,
       errBody?.errors ?? null,
     );
   }
@@ -171,6 +230,10 @@ export function toQuery(params: Record<string, string | number | boolean | null 
 const API_ERROR_MESSAGES: Record<string, string> = {
   // Auth / session
   MISSING_DEV_TOKEN: 'Chưa cấu hình token phát triển. Hãy đặt EXPO_PUBLIC_DEV_ACCESS_TOKEN trong .env.',
+  // BE trả code lowercase cho endpoint đăng nhập
+  // (src/Services/AuthService/Endpoints/EmailLoginEndpoints.cs → "invalid_credentials").
+  // Tra cứu bảng này KHÔNG phân biệt hoa thường → key viết hoa vẫn khớp.
+  INVALID_CREDENTIALS: 'Email hoặc mật khẩu không đúng, hoặc tài khoản không được phép đăng nhập.',
   UNAUTHORIZED: 'Phiên đăng nhập không hợp lệ. Vui lòng lấy token mới.',
   FORBIDDEN: 'Bạn không có quyền thực hiện thao tác này.',
   NOT_FOUND: 'Không tìm thấy dữ liệu.',
@@ -230,14 +293,23 @@ const HTTP_STATUS_MESSAGES: Record<number, string> = {
   503: 'Hệ thống tạm thời không khả dụng. Vui lòng thử lại sau.',
 };
 
-/** Chọn thông điệp cho UI: theo code → theo HTTP status → message server. */
+/**
+ * Chọn thông điệp cho UI: theo code → theo HTTP status → message server.
+ *
+ * Tra cứu `code` KHÔNG phân biệt hoa thường: BE dùng lẫn lộn convention
+ * (`invalid_credentials` lowercase ở endpoint login, `INVALID_BODY` /
+ * `SCHEDULE_CHANGED` uppercase ở service khác) — bảng ở trên viết hoa.
+ */
 export function describeApiError(
   status: number,
   code: string | null,
   serverMessage: string | null,
   _errors: Record<string, string[]> | null,
 ): string {
-  if (code && API_ERROR_MESSAGES[code]) return API_ERROR_MESSAGES[code];
+  if (code) {
+    const message = API_ERROR_MESSAGES[code.toUpperCase()];
+    if (message) return message;
+  }
   if (status >= 400 && status < 600 && HTTP_STATUS_MESSAGES[status]) return HTTP_STATUS_MESSAGES[status];
   if (serverMessage) return serverMessage;
   return 'Có lỗi không xác định. Vui lòng thử lại sau.';

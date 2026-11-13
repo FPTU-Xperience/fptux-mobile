@@ -2,6 +2,8 @@
 import { Inbox } from 'lucide-react-native';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '@/hooks/use-theme';
+
 type Props = {
   title: string;
   subtitle?: string;
@@ -11,13 +13,17 @@ type Props = {
 };
 
 export default function EmptyState({ title, subtitle, actionLabel, onAction }: Props) {
+  const theme = useTheme();
+
   return (
     <View style={styles.root}>
       <View style={styles.iconWrap}>
         <Inbox color="#F97316" size={26} />
       </View>
-      <Text style={styles.title}>{title}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+      {subtitle ? (
+        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
+      ) : null}
       {actionLabel && onAction ? (
         <Text style={styles.action} onPress={onAction}>
           {actionLabel}
@@ -44,7 +50,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 6,
   },
-  title: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  subtitle: { fontSize: 13, lineHeight: 19, color: '#6B7280', textAlign: 'center' },
+  title: { fontSize: 15, fontWeight: '800' },
+  subtitle: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   action: { marginTop: 10, color: '#F97316', fontSize: 13.5, fontWeight: '700' },
 });

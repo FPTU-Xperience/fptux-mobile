@@ -10,6 +10,7 @@ import {
 } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useTheme } from '@/hooks/use-theme';
 import type { Club, ClubIconKind, TagTone } from '@/types/club';
 
 const ICONS: Record<ClubIconKind, LucideIcon> = {
@@ -34,10 +35,11 @@ type Props = {
 };
 
 export default function ClubCard({ club, onPressDetail, onPressBookmark }: Props) {
+  const theme = useTheme();
   const Icon = ICONS[club.iconKind];
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: theme.background }]}>
       {/* Banner */}
       <View style={[styles.banner, { backgroundColor: club.bannerColor }]}>
         <View style={styles.deco} />
@@ -68,22 +70,22 @@ export default function ClubCard({ club, onPressDetail, onPressBookmark }: Props
           ))}
         </View>
 
-        <Text style={styles.name}>{club.name}</Text>
+        <Text style={[styles.name, { color: theme.text }]}>{club.name}</Text>
 
         <View style={styles.scheduleRow}>
           <CalendarDays size={14} color="#F97316" />
           <Text style={styles.schedule}>{club.schedule}</Text>
         </View>
 
-        <Text style={styles.desc}>{club.description}</Text>
+        <Text style={[styles.desc, { color: theme.textSecondary }]}>{club.description}</Text>
       </View>
 
-      <View style={styles.divider} />
+      <View style={[styles.divider, { backgroundColor: theme.backgroundElement }]} />
 
       <View style={styles.footer}>
         <View style={styles.codeRow}>
           <View style={styles.codeDot} />
-          <Text style={styles.code}>{club.code}</Text>
+          <Text style={[styles.code, { color: theme.textSecondary }]}>{club.code}</Text>
         </View>
         <Pressable style={styles.detail} onPress={() => onPressDetail?.(club)}>
           <Text style={styles.detailText}>Khám phá</Text>
@@ -96,7 +98,6 @@ export default function ClubCard({ club, onPressDetail, onPressBookmark }: Props
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#fff',
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -173,12 +174,12 @@ const styles = StyleSheet.create({
   },
   tag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   tagText: { fontSize: 10, fontWeight: '700' },
-  name: { fontSize: 17, fontWeight: '800', color: '#111827', marginTop: 12, lineHeight: 22 },
+  name: { fontSize: 17, fontWeight: '800', marginTop: 12, lineHeight: 22 },
   scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
   schedule: { fontSize: 12, color: '#C2410C', fontWeight: '600', flexShrink: 1 },
-  desc: { fontSize: 12.5, color: '#6B7280', lineHeight: 18, marginTop: 8 },
+  desc: { fontSize: 12.5, lineHeight: 18, marginTop: 8 },
 
-  divider: { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 14 },
+  divider: { height: 1, marginHorizontal: 14 },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -188,7 +189,7 @@ const styles = StyleSheet.create({
   },
   codeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   codeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#D1D5DB' },
-  code: { fontSize: 11, color: '#6B7280', fontWeight: '600', letterSpacing: 0.3 },
+  code: { fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
   detail: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   detailText: { fontSize: 12, fontWeight: '700', color: '#C2410C' },
 });

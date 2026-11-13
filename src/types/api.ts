@@ -140,6 +140,11 @@ export interface JoinClubRequest {
   expectations?: string | null;
   contributions?: string | null;
   additionalInfo?: Record<string, string> | null;
+  /** Bắt buộc = true (đồng ý nội quy CLB). */
+  acceptedClubRules: boolean;
+  /** Bắt buộc = true (cam kết tham gia). */
+  committedToParticipate: boolean;
+  message?: string | null;
 }
 
 export interface OperationResult {
@@ -171,6 +176,32 @@ export interface SelfMembershipApplication {
   reviewNote: string | null;
   canWithdraw: boolean;
   canAcceptInvitation?: boolean;
+}
+
+/**
+ * GET /api/clubs/me/memberships → ClubMembershipResponse[]
+ * (shape đầy đủ hơn SelfMembershipApplication: có clubCode, role, canWithdraw...)
+ */
+export interface ClubMembershipResponse {
+  id: number;
+  clubId: number;
+  clubName: string;
+  clubCategory: string;
+  userId: number;
+  fullName: string;
+  role: string;
+  status: string; // Pending | Approved | Rejected | Withdrawn
+  requestMessage: string | null;
+  reviewNote: string | null;
+  requestedAtUtc: string;
+  reviewedAtUtc: string | null;
+  version: string;
+  clubCode: string;
+  logoUrl: string | null;
+  source: string;
+  semesterId: string | null;
+  canAcceptInvitation: boolean;
+  canWithdraw: boolean;
 }
 
 // ============================ ACTIVITIES (student feed / v2) ============================
@@ -265,6 +296,22 @@ export interface AttendanceRecord {
   version: string;
 }
 
+/** Item trong GET /api/activities/{id}/my-attendance (ActivityAttendanceResponse) */
+export interface ActivityAttendanceResponse {
+  id: number;
+  userId: number;
+  fullName: string;
+  /** DateOnly → "YYYY-MM-DD" */
+  attendanceDate: string;
+  status: string;
+  note: string | null;
+  checkedInAtUtc: string | null;
+  checkedInByUserId: number | null;
+  sessionId: number | null;
+  version: string;
+  verificationStatus: string;
+}
+
 /** GET /api/activities/{id}/my-attendance?page=&pageSize= */
 export interface MyAttendancePage {
   activityId: number;
@@ -272,7 +319,7 @@ export interface MyAttendancePage {
   total: number;
   page: number;
   pageSize: number;
-  items: AttendanceRecord[];
+  items: ActivityAttendanceResponse[];
 }
 
 /** GET /api/activities/{id}/resources */
@@ -464,9 +511,87 @@ export interface StudySchedule {
   entries: ScheduleEntry[];
 }
 
+// ============================ RECOMMENDATIONS ============================
+
+/** Item trong GET /api/v2/recommendations/clubs (shape theo recommendation item + ClubDirectory). */
+export interface RecommendedClubItem {
+  clubId: number;
+  clubCode: string;
+  clubName: string;
+  category: string;
+  campusCode: string;
+  isRecruiting: boolean;
+  isApprovedMember: boolean;
+  /** Lý do gợi ý (nếu có). */
+  reason?: string;
+}
+
+/** StudentClubMetadata — club trong scope của student. */
+export interface StudentClubMetadata {
+  clubId: number;
+  clubCode: string;
+  clubName: string;
+  category: string;
+  campusCode: string;
+  isApprovedMember: boolean;
+  canViewPrivate: boolean;
+  joinedAt: string | null;
+  version: string;
+  membershipVersion: string | null;
+  isRecruiting: boolean;
+}
+
+/** Item gợi ý hoạt động — activity nằm trong `activity`. */
+export interface RecommendedActivityItem {
+  recommendationId: string;
+  rank: number;
+  targetPillar?: string;
+  reason: string;
+  reasons?: string[];
+  score?: number;
+  suggestedSessionIds?: number[];
+  ruleVersion?: string;
+  sourceLabel?: string;
+  activity: StudentActivityItem;
+}
+
+/** Item gợi ý CLB — club nằm trong `club`. */
+export interface RecommendedClubEntry {
+  recommendationId: string;
+  rank: number;
+  score?: number;
+  reasons?: string[];
+  club: StudentClubMetadata;
+}
+
+/**
+ * GET /api/v2/recommendations/activities?limit=1..6&scope=PERIOD
+ * Khi `available:false` thì `items` rỗng — UI phải fallback sang feed thường.
+ */
+export interface RecommendedActivitiesResponse {
+  items: RecommendedActivityItem[];
+  available: boolean;
+  status: string;
+  sourceLabel?: string;
+  generatedAt?: string;
+  expiresAt?: string;
+}
+
+/**
+ * GET /api/v2/recommendations/clubs?limit=1..6&scope=PERIOD
+ */
+export interface RecommendedClubsResponse {
+  items: RecommendedClubEntry[];
+  available: boolean;
+  status: string;
+  sourceLabel?: string;
+  generatedAt?: string;
+  expiresAt?: string;
+}
+
 // ============================ NOTIFICATIONS ============================
 
-/** GET /api/notifications?unreadOnly=true (dự đoán shape — cần verify) */
+/** GET /api/notifications?unreadOnly=true (shape theo NotificationResponse) */
 export interface Notification {
   id: number;
   eventType: string;
@@ -475,6 +600,3 @@ export interface Notification {
   isRead: boolean;
   createdAtUtc: string;
 }
-
-/** GET /api/v2/recommendations/clubs?limit=&semesterId=&scope= (shape chưa verify — // ?) */
-export type RecommendedClubs = unknown;

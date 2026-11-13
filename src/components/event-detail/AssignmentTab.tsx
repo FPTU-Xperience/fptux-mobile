@@ -1,12 +1,10 @@
 // components/event-detail/AssignmentTab.tsx
-import { FileText, ImageIcon, QrCode } from 'lucide-react-native';
+import { QrCode } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import Card from '@/components/common/Card';
 import CardTitle from '@/components/common/CardTitle';
 import type { ActivityDetail } from '@/types/activityDetail';
-
-import EmptyBlock from './EmptyBlock';
 
 type Props = {
   detail: ActivityDetail;
@@ -61,22 +59,6 @@ export default function AssignmentTab({ detail, onReloadSession }: Props) {
           </View>
         </View>
       </Card>
-
-      {/* Tài liệu / Media */}
-      <View style={styles.twoUp}>
-        <EmptyBlock
-          style={styles.half}
-          icon={FileText}
-          title="Chưa có tài liệu"
-          description="Tài liệu hoạt động sẽ hiển thị tại đây"
-        />
-        <EmptyBlock
-          style={styles.half}
-          icon={ImageIcon}
-          title="Chưa có media"
-          description="Ảnh, video chia sẻ sẽ xuất hiện ở đây"
-        />
-      </View>
     </>
   );
 }

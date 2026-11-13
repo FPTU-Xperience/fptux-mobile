@@ -19,6 +19,6 @@ export interface Session {
   user: UserSummary | null;
   /** Timestamp (ms) hết hạn access token. */
   expiresAt: number;
-  /** 'google' = login thật, 'dev' = token từ .env. */
-  source: 'google' | 'dev';
+  /** 'google' = login Google, 'email' = login email+mật khẩu, 'dev' = token từ .env. */
+  source: 'google' | 'email' | 'dev';
 }

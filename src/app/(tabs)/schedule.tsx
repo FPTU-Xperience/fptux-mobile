@@ -1,31 +1,27 @@
 // app/(tabs)/schedule.tsx
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import ErrorState from '@/components/common/ErrorState';
 import ScreenHeader from '@/components/common/ScreenHeader';
 import ScreenLayout from '@/components/common/ScreenLayout';
 import SectionHeader from '@/components/common/SectionHeader';
 import EmptySchedule from '@/components/schedule/EmptySchedule';
 import ScheduleItem from '@/components/schedule/ScheduleItem';
 import ScheduleTabs from '@/components/schedule/ScheduleTabs';
-import { fetchSchedule } from '@/services/mockSchedule';
-import type { ScheduleFeed, ScheduleTabKey } from '@/types/schedule';
+import { useApiState } from '@/hooks/useApiState';
+import { fetchSchedule } from '@/services/schedule';
+import type { ScheduleTabKey } from '@/types/schedule';
 
 export default function ScheduleScreen() {
   const router = useRouter();
-  const [feed, setFeed] = useState<ScheduleFeed | null>(null);
   const [tab, setTab] = useState<ScheduleTabKey>('upcoming');
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchSchedule().then((data) => {
-      if (!cancelled) setFeed(data);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: feed, loading, error, hasError, retry } = useApiState(
+    () => fetchSchedule(),
+    [],
+  );
 
   const goToActivities = () => router.push('/activity');
 
@@ -50,7 +46,9 @@ export default function ScheduleScreen() {
         onSelect={setTab}
       />
 
-      {!feed ? (
+      {hasError && error ? (
+        <ErrorState message={error} onRetry={retry} loading={loading} />
+      ) : !feed ? (
         <ActivityIndicator color="#F97316" style={styles.loader} />
       ) : tab === 'upcoming' ? (
         <>

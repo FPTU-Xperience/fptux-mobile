@@ -1,6 +1,7 @@
 // app/event/[id].tsx
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { Briefcase, Users } from 'lucide-react-native';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import AssignmentTab from '@/components/event-detail/AssignmentTab';
@@ -9,14 +10,21 @@ import DetailHero from '@/components/event-detail/DetailHero';
 import DetailSummary from '@/components/event-detail/DetailSummary';
 import DetailTabs from '@/components/event-detail/DetailTabs';
 import DetailTopBar from '@/components/event-detail/DetailTopBar';
+import EmptyBlock from '@/components/event-detail/EmptyBlock';
 import OverviewTab from '@/components/event-detail/OverviewTab';
-import RecruitmentTab from '@/components/event-detail/RecruitmentTab';
 import { DocumentsTab, MediaTab } from '@/components/event-detail/ResourceTabs';
-import { fetchActivityDetail, registerForActivity } from '@/services/mockActivityDetail';
+import ErrorState from '@/components/common/ErrorState';
+import { useApiState } from '@/hooks/useApiState';
+import { getApiErrorMessage } from '@/services/apiClient';
+import {
+  fetchActivityDetail,
+  fetchActivityResources,
+  fetchMyAttendance,
+  registerForActivity,
+} from '@/services/activities';
 import type {
   ActivityDetail,
   DetailTabKey,
-  RecruitmentRole,
   RegisterState,
 } from '@/types/activityDetail';
 
@@ -31,25 +39,31 @@ const TABS: { key: DetailTabKey; label: string }[] = [
 export default function EventDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const activityId = String(id ?? '');
 
-  const [detail, setDetail] = useState<ActivityDetail | null>(null);
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<DetailTabKey>('overview');
   const [bookmarked, setBookmarked] = useState(false);
   const [registered, setRegistered] = useState(false);
   const [registering, setRegistering] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    const data = await fetchActivityDetail(String(id));
-    setDetail(data);
-    setLoading(false);
-  }, [id]);
+  // Tổng quan + tài nguyên + điểm danh: 3 request song song, lỗi cục bộ
+  // (vd resources bị 403) không làm hỏng cả trang.
+  const { data, loading, error, hasError, retry } = useApiState(
+    async () => {
+      const base = await fetchActivityDetail(activityId);
+      if (!base) return null;
 
-  useEffect(() => {
-    setLoading(true);
-    load();
-  }, [load]);
+      const [resources, attendance] = await Promise.all([
+        fetchActivityResources(activityId).catch(() => ({ documents: [], media: [] })),
+        fetchMyAttendance(activityId).catch(() => base.attendance),
+      ]);
+
+      return { ...base, documents: resources.documents, media: resources.media, attendance };
+    },
+    [activityId],
+  );
+
+  const detail: ActivityDetail | null = data;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -64,16 +78,18 @@ export default function EventDetailScreen() {
   const handleRegister = async () => {
     if (!detail || registering || registered) return;
     setRegistering(true);
-    const result = await registerForActivity(detail.id);
-    setRegistering(false);
-    if (result.success) setRegistered(true);
-    Alert.alert(result.success ? 'Đăng ký thành công' : 'Đăng ký thất bại', result.message);
+    try {
+      const result = await registerForActivity(detail.id);
+      setRegistered(result.success);
+      Alert.alert(result.success ? 'Đăng ký thành công' : 'Đăng ký thất bại', result.message);
+    } catch (err) {
+      Alert.alert('Đăng ký thất bại', getApiErrorMessage(err));
+    } finally {
+      setRegistering(false);
+    }
   };
 
-  const handleApplyRole = (role: RecruitmentRole) => {
-    // TODO: gọi API đăng ký vị trí thật
-    Alert.alert('Đăng ký vị trí', `Đã gửi đăng ký vị trí "${role.title}".`);
-  };
+  const reload = useCallback(() => retry(), [retry]);
 
   const registerState: RegisterState = {
     registered,
@@ -90,7 +106,11 @@ export default function EventDetailScreen() {
         onShare={handleShare}
       />
 
-      {loading ? (
+      {hasError && error ? (
+        <View style={styles.center}>
+          <ErrorState message={error} onRetry={retry} loading={loading} />
+        </View>
+      ) : loading && !detail ? (
         <ActivityIndicator color="#F97316" style={styles.center} />
       ) : !detail ? (
         <View style={styles.center}>
@@ -109,9 +129,28 @@ export default function EventDetailScreen() {
             {tab === 'overview' && <OverviewTab detail={detail} />}
             {tab === 'documents' && <DocumentsTab items={detail.documents} />}
             {tab === 'media' && <MediaTab items={detail.media} />}
-            {tab === 'assignments' && <AssignmentTab detail={detail} onReloadSession={load} />}
+
+            {/* Phân công: chưa có nguồn API cho student → hiện trạng thái
+                "đang cập nhật" thay vì bịa dữ liệu. Phần ĐIỂM DANH bên dưới
+                vẫn dùng dữ liệu thật từ /my-attendance. */}
+            {tab === 'assignments' && (
+              <>
+                <EmptyBlock
+                  icon={Briefcase}
+                  title="Phân công đang cập nhật"
+                  description="Danh sách phân công nhiệm vụ sẽ hiển thị tại đây khi CLB công bố."
+                />
+                <AssignmentTab detail={detail} onReloadSession={reload} />
+              </>
+            )}
+
+            {/* Tuyển dụng: chưa có nguồn API cho student. */}
             {tab === 'recruitment' && (
-              <RecruitmentTab data={detail.recruitment} onApply={handleApplyRole} />
+              <EmptyBlock
+                icon={Users}
+                title="Tuyển dụng đang cập nhật"
+                description="Thông tin tuyển dụng nhân sự sẽ hiển thị tại đây khi CLB công bố."
+              />
             )}
           </ScrollView>
 

@@ -5,38 +5,32 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import ClubCard from '@/components/explore/ClubCard';
+import ErrorState from '@/components/common/ErrorState';
 import FilterChips from '@/components/common/FilterChips';
 import ScreenHeader from '@/components/common/ScreenHeader';
 import ScreenLayout from '@/components/common/ScreenLayout';
 import SearchBar from '@/components/common/SearchBar';
-import { fetchClubs } from '@/services/mockClubs';
-import type { Club, ClubFeed, ClubFilterKey } from '@/types/club';
+import { useApiState } from '@/hooks/useApiState';
+import { fetchClubs } from '@/services/clubs';
+import type { Club, ClubFilterKey } from '@/types/club';
 
 export default function AllClubsScreen() {
   const router = useRouter();
-  const [feed, setFeed] = useState<ClubFeed | null>(null);
-  const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
   const [filter, setFilter] = useState<ClubFilterKey>('all');
   const [recruitingOnly, setRecruitingOnly] = useState(false);
 
+  // Debounce từ khoá 250ms.
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+    const timer = setTimeout(() => setDebouncedKeyword(keyword), 250);
+    return () => clearTimeout(timer);
+  }, [keyword]);
 
-    const timer = setTimeout(async () => {
-      const data = await fetchClubs({ keyword, filter, recruitingOnly });
-      if (!cancelled) {
-        setFeed(data);
-        setLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [keyword, filter, recruitingOnly]);
+  const { data: feed, loading, error, hasError, retry } = useApiState(
+    () => fetchClubs({ keyword: debouncedKeyword, filter, recruitingOnly }),
+    [debouncedKeyword, filter, recruitingOnly],
+  );
 
   const openDetail = (club: Club) => {
     router.push({ pathname: '/club/[id]', params: { id: club.id } });
@@ -47,7 +41,7 @@ export default function AllClubsScreen() {
       <ScreenHeader
         campus={feed?.campus}
         title="Tất cả câu lạc bộ"
-        subtitle={`Khám phá ${feed?.total ?? 79} cộng đồng sinh viên sôi động tại FPTU`}
+        subtitle={`Khám phá ${feed?.total ?? 0} cộng đồng sinh viên sôi động tại FPTU`}
       />
       <SearchBar
         value={keyword}
@@ -73,7 +67,9 @@ export default function AllClubsScreen() {
         </Pressable>
       </View>
 
-      {loading && !feed ? (
+      {hasError && error ? (
+        <ErrorState message={error} onRetry={retry} loading={loading} />
+      ) : loading && !feed ? (
         <ActivityIndicator color="#F97316" style={styles.loader} />
       ) : (
         <View style={[styles.list, loading && styles.dim]}>
