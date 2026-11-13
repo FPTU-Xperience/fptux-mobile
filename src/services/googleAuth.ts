@@ -4,6 +4,15 @@
 // (docs Expo "Google authentication" recommend lib này cho Android vì hỗ trợ
 //  Android Credential Manager; provider Google của `expo-auth-session` đã deprecated).
 //
+// ⚠️ QUAN TRỌNG — không import lib ở top-level:
+// `react-native-nitro-google-signin/src/GoogleOneTapSignIn.ts` gọi
+// `NitroModules.createHybridObject()` ngay ở module scope. Nếu file này được
+// require trong môi trường không có native runtime (ví dụ `expo export:embed`
+// khi build — Expo Router evaluate bundle trong Node để sinh server manifest),
+// nó sẽ gọi native module và crash với:
+//   "Invariant Violation: __fbBatchedBridgeConfig is not set, cannot invoke native modules"
+// ⇒ Ta import ĐỘNG (dynamic import) trong hàm, chỉ chạy trên app thật.
+//
 // API (đọc từ source package):
 //   GoogleOneTapSignIn.configure({ webClientId, iosClientId?, offlineAccess?, hostedDomain? })
 //   GoogleOneTapSignIn.signIn() → { data: { user, idToken, serverAuthCode, scopes } }
@@ -17,31 +26,16 @@
 //
 // Yêu cầu build: development build / standalone APK (native code — không chạy được Expo Go).
 
-import {
-  GoogleOneTapSignIn,
-  isCancelledResponse,
-  isErrorWithCode,
-  isSuccessResponse,
-  statusCodes,
-} from 'react-native-nitro-google-signin';
+import type { OneTapResponse } from 'react-native-nitro-google-signin';
 
-let configured = false;
+type NitroGoogleSignInModule = typeof import('react-native-nitro-google-signin');
 
-/** Cấu hình 1 lần cho app (gọi ở bootstrap, trước khi bấm đăng nhập). */
-export function configureGoogleSignIn(): void {
-  if (configured) return;
-  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-  if (!webClientId) {
-    throw new Error(
-      'Thiếu EXPO_PUBLIC_GOOGLE_CLIENT_ID. Điền Web client ID của Google (cùng giá trị BE dùng cho GOOGLE_CLIENT_ID) rồi build lại app.',
-    );
-  }
-  GoogleOneTapSignIn.configure({
-    webClientId,
-    offlineAccess: false,
-    hostedDomain: null,
-  });
-  configured = true;
+let libPromise: Promise<NitroGoogleSignInModule> | null = null;
+
+/** Load lib native lazily (chỉ resolve được trong app runtime). */
+async function loadLib(): Promise<NitroGoogleSignInModule> {
+  libPromise ??= import('react-native-nitro-google-signin');
+  return libPromise;
 }
 
 export class GoogleSignInFailure extends Error {
@@ -54,13 +48,29 @@ export class GoogleSignInFailure extends Error {
 }
 
 /**
- * Mở flow đăng nhập Google và trả ID token (JWT) để gửi lên
+ * Đăng nhập Google và trả ID token (JWT) để gửi lên
  * `POST /api/auth/google { credential }`.
  */
 export async function promptGoogleSignIn(): Promise<string> {
-  configureGoogleSignIn();
+  const webClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!webClientId) {
+    throw new GoogleSignInFailure(
+      'Thiếu EXPO_PUBLIC_GOOGLE_CLIENT_ID. Điền Web client ID của Google (cùng giá trị BE dùng cho GOOGLE_CLIENT_ID) rồi build lại app.',
+      'NO_CLIENT_ID',
+    );
+  }
 
-  let response: Awaited<ReturnType<typeof GoogleOneTapSignIn.signIn>>;
+  const { GoogleOneTapSignIn, isCancelledResponse, isErrorWithCode, isSuccessResponse, statusCodes } =
+    await loadLib();
+
+  // Cấu hình 1 lần (idempotent).
+  GoogleOneTapSignIn.configure({
+    webClientId,
+    offlineAccess: false,
+    hostedDomain: null,
+  });
+
+  let response: OneTapResponse;
   try {
     response = await GoogleOneTapSignIn.signIn();
   } catch (e) {

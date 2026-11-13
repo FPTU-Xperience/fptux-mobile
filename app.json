@@ -58,7 +58,8 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.XXXXX"
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,
