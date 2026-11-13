@@ -813,8 +813,8 @@ adb shell monkey -p vn.fptu.xperience.mobile 1
 5. Nếu lỗi:
    | Lỗi | Nguyên nhân | Xử lý |
    |---|---|---|
-   | `OAuthError: 12501` | SHA-1 không khớp | Đăng ký SHA-1 đúng keystore đã dùng build (§12.2) |
-   | `OAuthError: 10` | Package name không khớp | Sửa `android.package` + tạo lại OAuth client |
-   | `OAuthError: 12500` | Developer account chưa verify | Thêm email vào Test users |
-   | `401` từ BE | `aud` không khớp `GOOGLE_CLIENT_ID` | Dùng **Web client ID** cho `expo-auth-session` (rủi ro #2) |
+   | `DEVELOPER_ERROR` (Nitro) | SHA-1 / package name / Android client ID không khớp, hoặc sai `webClientId` | Đăng ký SHA-1 đúng keystore build (§12.2) + kiểm tra `android.package` + chắc chắn `webClientId` là **Web** client ID |
+   | Sign-in tự hủy (`type: cancelled`) sau khi chọn account | Thiếu SHA-1 của keystore đang build (đặc biệt Play App Signing key) | Thêm đúng fingerprint vào Android OAuth client (docs Google Cloud) |
+   | `PLAY_SERVICES_NOT_AVAILABLE` | Máy không có Play Services | Cài/cập nhật Google Play Services |
+   | `401` từ BE | `aud` không khớp `GOOGLE_CLIENT_ID` | Kiểm tra `EXPO_PUBLIC_GOOGLE_CLIENT_ID` = đúng Web client ID của BE |
    | `403` từ BE | Email không có trong DB / không có roster / sai domain | Chuẩn bị tài khoản test (rủi ro #3) |

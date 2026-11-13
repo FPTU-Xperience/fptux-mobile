@@ -17,7 +17,13 @@
 //
 // Yêu cầu build: development build / standalone APK (native code — không chạy được Expo Go).
 
-import { GoogleOneTapSignIn, isCancelledResponse, statusCodes } from 'react-native-nitro-google-signin';
+import {
+  GoogleOneTapSignIn,
+  isCancelledResponse,
+  isErrorWithCode,
+  isSuccessResponse,
+  statusCodes,
+} from 'react-native-nitro-google-signin';
 
 let configured = false;
 
@@ -58,23 +64,24 @@ export async function promptGoogleSignIn(): Promise<string> {
   try {
     response = await GoogleOneTapSignIn.signIn();
   } catch (e) {
-    const code =
-      typeof e === 'object' && e !== null && 'code' in e ? String((e as { code: unknown }).code) : '';
-    if (code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-      throw new GoogleSignInFailure(
-        'Thiết bị chưa có Google Play Services hoặc đang quá cũ. Vui lòng cập nhật rồi thử lại.',
-        code,
-      );
-    }
-    if (code === statusCodes.DEVELOPER_ERROR) {
-      throw new GoogleSignInFailure(
-        'Cấu hình Google Sign-In sai (package name / SHA-1 / client ID). Kiểm tra lại phần cấu hình Google Cloud.',
-        code,
-      );
+    if (isErrorWithCode(e)) {
+      if (e.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        throw new GoogleSignInFailure(
+          'Thiết bị chưa có Google Play Services hoặc đang quá cũ. Vui lòng cập nhật rồi thử lại.',
+          e.code,
+        );
+      }
+      if (e.code === statusCodes.DEVELOPER_ERROR) {
+        throw new GoogleSignInFailure(
+          'Cấu hình Google Sign-In sai (package name / SHA-1 / client ID). Kiểm tra lại phần cấu hình Google Cloud.',
+          e.code,
+        );
+      }
+      throw new GoogleSignInFailure(e.message, e.code);
     }
     throw new GoogleSignInFailure(
       e instanceof Error && e.message ? e.message : 'Đăng nhập Google thất bại.',
-      code || 'UNKNOWN',
+      'UNKNOWN',
     );
   }
 
@@ -82,9 +89,8 @@ export async function promptGoogleSignIn(): Promise<string> {
     throw new GoogleSignInFailure('Bạn đã hủy đăng nhập Google.', statusCodes.SIGN_IN_CANCELLED);
   }
 
-  const idToken = response.data?.idToken;
-  if (!idToken) {
+  if (!isSuccessResponse(response)) {
     throw new GoogleSignInFailure('Google không trả về ID token.', 'NO_ID_TOKEN');
   }
-  return idToken;
+  return response.data.idToken;
 }
